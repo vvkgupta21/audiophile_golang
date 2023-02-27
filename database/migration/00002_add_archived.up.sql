@@ -1,0 +1,2 @@
+ALTER TABLE cart_products
+    ADD COLUMN archived_at TIMESTAMP WITH TIME ZONE
