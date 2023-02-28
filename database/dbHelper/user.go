@@ -225,21 +225,27 @@ func RemoveProductQuantityInCart(cartId, productId string) error {
 
 }
 
-func DeleteProductFromCart(cartId, productId string) error {
+func DeleteProductFromCart(db sqlx.Ext, cartId, productId string) error {
 	SQL := `UPDATE cart_products SET archived_at = Now() WHERE cart_id = $1 AND product_id = $2`
-	_, err := database.Audiophile.Exec(SQL, cartId, productId)
+	_, err := db.Exec(SQL, cartId, productId)
 	return err
 }
 
-func CreateOrder(cartProductId string) (string, error) {
-	SQL := `INSERT INTO orders(cart_id) VALUES ($1) RETURNING id`
-	var orderId string
-	err := database.Audiophile.QueryRowx(SQL, cartProductId).Scan(&orderId)
-	return orderId, err
+func CreateOrder(db sqlx.Ext, cartProductId string) error {
+	SQL := `INSERT INTO orders(cart_id) VALUES ($1)`
+	_, err := db.Exec(SQL, cartProductId)
+	return err
+}
+func GetCartProductIdByID(cartId string) ([]model.ProductIdModel, error) {
+	SQL := `SELECT product_id, quantity FROM cart_products WHERE cart_id = $1 AND archived_at IS NULL`
+	list := make([]model.ProductIdModel, 0)
+	err := database.Audiophile.Select(&list, SQL, cartId)
+	return list, err
+
 }
 
-func UpdateProductQuantity(productId string, quantity int) error {
-	SQL := `UPDATE products SET quantity = products.quantity - $1 WHERE id = $2`
-	_, err := database.Audiophile.Exec(SQL, quantity, productId)
+func UpdateProductQuantity(db sqlx.Ext, productId string, quantity int) error {
+	SQL := `UPDATE products SET quantity = products.quantity - $2 WHERE id = $1`
+	_, err := db.Exec(SQL, productId, quantity)
 	return err
 }

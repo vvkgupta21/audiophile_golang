@@ -29,6 +29,8 @@ func UserRoute(r chi.Router) {
 		})
 		user.Route("/order", func(order chi.Router) {
 			order.Post("/{cartId}", handler.CreateOrder)
+			//order.Post("/{productId}/{quantity}", handler.UpdateProductQuantity)
+			//order.Get("/{cartId}", handler.GetCartProductIds)
 		})
 	})
 }

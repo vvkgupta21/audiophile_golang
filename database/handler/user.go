@@ -422,7 +422,7 @@ func DeleteProductFromCart(w http.ResponseWriter, r *http.Request) {
 	cartProductId := chi.URLParam(r, "cartId")
 	productId := chi.URLParam(r, "productId")
 
-	err := dbHelper.DeleteProductFromCart(cartProductId, productId)
+	err := dbHelper.DeleteProductFromCart(database.Audiophile, cartProductId, productId)
 	if err != nil {
 		return
 	}
@@ -434,13 +434,74 @@ func DeleteProductFromCart(w http.ResponseWriter, r *http.Request) {
 
 func CreateOrder(w http.ResponseWriter, r *http.Request) {
 	cartProductId := chi.URLParam(r, "cartId")
-	orderId, err := dbHelper.CreateOrder(cartProductId)
+
+	body, err := dbHelper.GetCartProductIdByID(cartProductId)
 	if err != nil {
+		return
+	}
+
+	txErr := database.Tx(func(tx *sqlx.Tx) error {
+		err := dbHelper.CreateOrder(tx, cartProductId)
+		if err != nil {
+			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to create order")
+			return err
+		}
+
+		for _, v := range body {
+			err = dbHelper.UpdateProductQuantity(tx, v.ProductId, v.Quantity)
+			if err != nil {
+				utils.RespondError(w, http.StatusInternalServerError, err, "Failed to update the quantity")
+				return err
+			}
+
+			err := dbHelper.DeleteProductFromCart(tx, cartProductId, v.ProductId)
+
+			if err != nil {
+				utils.RespondError(w, http.StatusInternalServerError, err, "Failed to delete product from cart")
+				return err
+			}
+
+		}
+		return nil
+	})
+	// error message correct karo
+	if txErr != nil {
+		utils.RespondError(w, http.StatusInternalServerError, txErr, "transaction error")
 		return
 	}
 
 	utils.RespondJSON(w, http.StatusOK, struct {
 		Message string
-		OrderId string
-	}{Message: "Order placed successfully", OrderId: orderId})
+	}{Message: "Order placed successfully"})
 }
+
+//func GetCartProductIds(w http.ResponseWriter, r *http.Request) {
+//	cartProductId := chi.URLParam(r, "cartId")
+//	body, err := dbHelper.GetCartProductIdByID(cartProductId)
+//	if err != nil {
+//		return
+//	}
+//	utils.RespondJSON(w, http.StatusOK, body)
+//}
+
+//func UpdateProductQuantity(w http.ResponseWriter, r *http.Request) {
+//	productId := chi.URLParam(r, "productId")
+//	quantityStr := chi.URLParam(r, "quantity")
+//	quantity, err := strconv.Atoi(quantityStr)
+//
+//	if err != nil {
+//		utils.RespondError(w, http.StatusInternalServerError, err, "error in fetching quantity")
+//		return
+//	}
+//
+//	err = dbHelper.UpdateProductQuantity(productId, quantity)
+//
+//	if err != nil {
+//		utils.RespondError(w, http.StatusInternalServerError, err, "Failed to update the quantity")
+//		return
+//	}
+//
+//	utils.RespondJSON(w, http.StatusOK, struct {
+//		Message string
+//	}{"Product quantity updated successfully"})
+//}

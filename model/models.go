@@ -123,3 +123,8 @@ type QuantityOfProductInCart struct {
 	ProductId string `json:"productId" db:"product_id"`
 	Quantity  int    `json:"quantity" db:"quantity"`
 }
+
+type ProductIdModel struct {
+	ProductId string `json:"product_id" db:"product_id"`
+	Quantity  int    `json:"quantity" db:"quantity"`
+}
