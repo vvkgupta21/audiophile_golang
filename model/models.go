@@ -4,6 +4,7 @@ type Role string
 type Category string
 type Address string
 type Status string
+type OrderStatus string
 
 const (
 	RoleAdmin Role = "admin"
@@ -24,6 +25,12 @@ const (
 const (
 	CartStatusActive   Status = "active"
 	CartStatusInActive Status = "inactive"
+)
+
+const (
+	OrderStatusOrdered   OrderStatus = "ordered"
+	OrderStatusShipping  OrderStatus = "shipping"
+	OrderStatusDelivered OrderStatus = "delivered"
 )
 
 type UserRequestBody struct {
@@ -124,7 +131,11 @@ type QuantityOfProductInCart struct {
 	Quantity  int    `json:"quantity" db:"quantity"`
 }
 
-type ProductIdModel struct {
+type ProductMinimalDetails struct {
 	ProductId string `json:"product_id" db:"product_id"`
 	Quantity  int    `json:"quantity" db:"quantity"`
+}
+
+type PlacedOrderStatus struct {
+	Status OrderStatus `json:"order_status" db:"order_status"`
 }

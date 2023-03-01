@@ -422,7 +422,7 @@ func DeleteProductFromCart(w http.ResponseWriter, r *http.Request) {
 	cartProductId := chi.URLParam(r, "cartId")
 	productId := chi.URLParam(r, "productId")
 
-	err := dbHelper.DeleteProductFromCart(database.Audiophile, cartProductId, productId)
+	err := dbHelper.UpdateProductFromCart(database.Audiophile, cartProductId, productId)
 	if err != nil {
 		return
 	}
@@ -433,35 +433,55 @@ func DeleteProductFromCart(w http.ResponseWriter, r *http.Request) {
 }
 
 func CreateOrder(w http.ResponseWriter, r *http.Request) {
-	cartProductId := chi.URLParam(r, "cartId")
+	cartId := chi.URLParam(r, "cartId")
+	addressId := chi.URLParam(r, "addressId")
 
-	body, err := dbHelper.GetCartProductIdByID(cartProductId)
+	active, activeErr := dbHelper.IsCartIsActive(cartId)
+
+	if active == model.CartStatusInActive {
+		utils.RespondError(w, http.StatusBadRequest, activeErr, "Cart is not active")
+		return
+	}
+
+	if activeErr != nil {
+		utils.RespondError(w, http.StatusInternalServerError, activeErr, "Failed to check cart status")
+		return
+	}
+
+	productDetail, err := dbHelper.GetCartProductByID(cartId)
 	if err != nil {
 		return
 	}
 
 	txErr := database.Tx(func(tx *sqlx.Tx) error {
-		err := dbHelper.CreateOrder(tx, cartProductId)
+		err := dbHelper.CreateOrder(tx, cartId, model.OrderStatusOrdered, addressId)
 		if err != nil {
 			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to create order")
 			return err
 		}
 
-		for _, v := range body {
+		for _, v := range productDetail {
 			err = dbHelper.UpdateProductQuantity(tx, v.ProductId, v.Quantity)
 			if err != nil {
 				utils.RespondError(w, http.StatusInternalServerError, err, "Failed to update the quantity")
 				return err
 			}
 
-			err := dbHelper.DeleteProductFromCart(tx, cartProductId, v.ProductId)
+			err := dbHelper.UpdateProductFromCart(tx, cartId, v.ProductId)
 
 			if err != nil {
 				utils.RespondError(w, http.StatusInternalServerError, err, "Failed to delete product from cart")
 				return err
 			}
-
 		}
+
+		err = dbHelper.UpdateCartToInactive(tx, cartId, model.CartStatusInActive)
+
+		if err != nil {
+			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to update status of cart")
+			return err
+		}
+
 		return nil
 	})
 	// error message correct karo
@@ -473,6 +493,55 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 	utils.RespondJSON(w, http.StatusOK, struct {
 		Message string
 	}{Message: "Order placed successfully"})
+}
+
+func CreateOrderStatus(w http.ResponseWriter, r *http.Request) {
+	orderId := chi.URLParam(r, "orderId")
+	status := chi.URLParam(r, "orderStatus")
+	var orderStatus model.OrderStatus
+	if status == "shipping" {
+		orderStatus = model.OrderStatusShipping
+	} else if status == "delivered" {
+		orderStatus = model.OrderStatusDelivered
+	}
+	////var body model.PlacedOrderStatus
+	//var status string
+	//if err := utils.ParseBody(r.Body, &status); err != nil {
+	//	utils.RespondError(w, http.StatusBadRequest, err, "Failed to parse request body")
+	//	return
+	//}
+	//parseBody := model.PlacedOrderStatus{
+	//	Status: body.Status,
+	//}
+	//validate := validator.New()
+	//if err := validate.Struct(parseBody); err != nil {
+	//	utils.RespondError(w, http.StatusBadRequest, err, "input field is invalid")
+	//	return
+	//}
+
+	err := dbHelper.CreateOrderStatus(database.Audiophile, orderId, orderStatus)
+
+	if err != nil {
+		utils.RespondError(w, http.StatusInternalServerError, err, "Failed to create order status")
+		return
+	}
+
+	utils.RespondJSON(w, http.StatusCreated, struct {
+		Message string
+	}{"order status changed"})
+}
+
+func GetUserAddress(w http.ResponseWriter, r *http.Request) {
+	userId := getUserId(r)
+	userAddress, err := dbHelper.GetAddress(database.Audiophile, userId)
+	logrus.Println(userAddress)
+	if err != nil {
+		return
+	}
+	err = utils.EncodeJSONBody(w, userAddress)
+	if err != nil {
+		return
+	}
 }
 
 //func GetCartProductIds(w http.ResponseWriter, r *http.Request) {

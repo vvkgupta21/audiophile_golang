@@ -222,30 +222,47 @@ func RemoveProductQuantityInCart(cartId, productId string) error {
 	SQL := `UPDATE cart_products SET quantity = cart_products.quantity - 1 WHERE cart_id = $1 AND product_id = $2`
 	_, err := database.Audiophile.Exec(SQL, cartId, productId)
 	return err
-
 }
 
-func DeleteProductFromCart(db sqlx.Ext, cartId, productId string) error {
+func UpdateProductFromCart(db sqlx.Ext, cartId, productId string) error {
 	SQL := `UPDATE cart_products SET archived_at = Now() WHERE cart_id = $1 AND product_id = $2`
 	_, err := db.Exec(SQL, cartId, productId)
 	return err
 }
 
-func CreateOrder(db sqlx.Ext, cartProductId string) error {
-	SQL := `INSERT INTO orders(cart_id) VALUES ($1)`
-	_, err := db.Exec(SQL, cartProductId)
+func CreateOrder(db sqlx.Ext, cartProductId string, orderStatus model.OrderStatus, addressId string) error {
+	SQL := `INSERT INTO orders(cart_id, order_status, address_id) VALUES ($1, $2, $3)`
+	_, err := db.Exec(SQL, cartProductId, orderStatus, addressId)
 	return err
 }
-func GetCartProductIdByID(cartId string) ([]model.ProductIdModel, error) {
+func GetCartProductByID(cartId string) ([]model.ProductMinimalDetails, error) {
 	SQL := `SELECT product_id, quantity FROM cart_products WHERE cart_id = $1 AND archived_at IS NULL`
-	list := make([]model.ProductIdModel, 0)
+	list := make([]model.ProductMinimalDetails, 0)
 	err := database.Audiophile.Select(&list, SQL, cartId)
 	return list, err
-
 }
 
 func UpdateProductQuantity(db sqlx.Ext, productId string, quantity int) error {
 	SQL := `UPDATE products SET quantity = products.quantity - $2 WHERE id = $1`
 	_, err := db.Exec(SQL, productId, quantity)
+	return err
+}
+
+func IsCartIsActive(cartId string) (model.Status, error) {
+	SQL := `SELECT status FROM carts WHERE id = $1`
+	var status model.Status
+	err := database.Audiophile.Get(&status, SQL, cartId)
+	return status, err
+}
+
+func UpdateCartToInactive(db sqlx.Ext, cartId string, status model.Status) error {
+	SQL := `UPDATE carts SET status = $1 WHERE id = $2`
+	_, err := db.Exec(SQL, status, cartId)
+	return err
+}
+
+func CreateOrderStatus(db sqlx.Ext, orderId string, status model.OrderStatus) error {
+	SQL := `UPDATE orders SET order_status = $1 WHERE id = $2`
+	_, err := db.Exec(SQL, status, orderId)
 	return err
 }

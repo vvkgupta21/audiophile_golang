@@ -13,6 +13,7 @@ func UserRoute(r chi.Router) {
 		})
 		user.Route("/address", func(address chi.Router) {
 			address.Post("/", handler.CreatedAddress)
+			address.Get("/", handler.GetUserAddress)
 		})
 		user.Route("/cart", func(cartProduct chi.Router) {
 			cartProduct.Post("/{id}/{quantity}", handler.CreateProductToCart)
@@ -28,7 +29,7 @@ func UserRoute(r chi.Router) {
 			})
 		})
 		user.Route("/order", func(order chi.Router) {
-			order.Post("/{cartId}", handler.CreateOrder)
+			order.Post("/{cartId}/{addressId}", handler.CreateOrder)
 			//order.Post("/{productId}/{quantity}", handler.UpdateProductQuantity)
 			//order.Get("/{cartId}", handler.GetCartProductIds)
 		})
