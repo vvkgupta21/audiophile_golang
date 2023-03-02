@@ -13,9 +13,61 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/jmoiron/sqlx"
 	"github.com/sirupsen/logrus"
+	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
 	"strconv"
 )
+
+func UploadFile(w http.ResponseWriter, r *http.Request) {
+	// Maximum upload of 10 MB files
+	err := r.ParseMultipartForm(10 << 20)
+	if err != nil {
+		return
+	}
+
+	// Get handler for filename, size and headers
+	file, handler, err := r.FormFile("myFile")
+	if err != nil {
+		utils.RespondError(w, http.StatusBadRequest, err, "Error Retrieving the File")
+		logrus.Println(err)
+		return
+	}
+
+	defer func(file multipart.File) {
+		err := file.Close()
+		if err != nil {
+			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to close file")
+		}
+	}(file)
+	logrus.Printf("Uploaded File: %+v\n", handler.Filename)
+	logrus.Printf("File Size: %+v\n", handler.Size)
+	logrus.Printf("MIME Header: %+v\n", handler.Header)
+
+	// Create file
+	dst, err := os.Create(handler.Filename)
+	defer func(dst *os.File) {
+		err := dst.Close()
+		if err != nil {
+			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to close file")
+		}
+	}(dst)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Copy the uploaded file to the created file on the filesystem
+	if _, err := io.Copy(dst, file); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	utils.RespondJSON(w, http.StatusOK, struct {
+		Message string
+	}{"Successfully Uploaded File"})
+}
 
 func CreateUser(w http.ResponseWriter, r *http.Request) {
 	var body model.UserRequestBody
