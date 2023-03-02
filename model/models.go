@@ -1,5 +1,11 @@
 package model
 
+import (
+	"cloud.google.com/go/firestore"
+	cloud "cloud.google.com/go/storage"
+	"context"
+)
+
 type Role string
 type Category string
 type Address string
@@ -138,4 +144,10 @@ type ProductMinimalDetails struct {
 
 type PlacedOrderStatus struct {
 	Status OrderStatus `json:"order_status" db:"order_status"`
+}
+
+type App struct {
+	Ctx     context.Context
+	Client  *firestore.Client
+	Storage *cloud.Client
 }
