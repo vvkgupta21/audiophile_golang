@@ -14,83 +14,20 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/sirupsen/logrus"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"time"
 )
 
-//func UploadImage(writer http.ResponseWriter, request *http.Request) {
-//	client := model.App{}
-//	var err error
-//	client.Ctx = context.Background()
-//	credentialsFile := option.WithCredentialsJSON([]byte(os.Getenv("Firebase_Storage_Credential")))
-//	app, err := firebase.NewApp(client.Ctx, nil, credentialsFile)
-//	if err != nil {
-//		logrus.Error(err)
-//		return
-//	}
-//
-//	client.Client, err = app.Firestore(client.Ctx)
-//	if err != nil {
-//		logrus.Error(err)
-//		return
-//	}
-//
-//	client.Storage, err = cloud.NewClient(client.Ctx, credentialsFile)
-//	if err != nil {
-//		logrus.Error(err)
-//		return
-//	}
-//
-//	file, fileHeader, err := request.FormFile("image")
-//	err = request.ParseMultipartForm(10 << 20)
-//	if err != nil {
-//		logrus.Error(err)
-//		writer.WriteHeader(http.StatusInternalServerError)
-//		return
-//	}
-//
-//	defer file.Close()
-//	imagePath := fileHeader.Filename + strconv.Itoa(int(time.Now().Unix()))
-//	bucket := "audiophile-c47c3.appspot.com"
-//	bucketStorage := client.Storage.Bucket(bucket).Object(imagePath).NewWriter(client.Ctx)
-//
-//	_, err = io.Copy(bucketStorage, file)
-//	if err != nil {
-//		logrus.Error(err)
-//		writer.WriteHeader(http.StatusBadRequest)
-//		return
-//	}
-//
-//	if err := bucketStorage.Close(); err != nil {
-//		logrus.Error(err)
-//		writer.WriteHeader(http.StatusBadRequest)
-//		return
-//	}
-//
-//	signedUrl := &cloud.SignedURLOptions{
-//		Scheme:  cloud.SigningSchemeV4,
-//		Method:  "GET",
-//		Expires: time.Now().Add(15 * time.Minute),
-//	}
-//	url, err := client.Storage.Bucket(bucket).SignedURL(imagePath, signedUrl)
-//	if err != nil {
-//		logrus.Error(err)
-//		return
-//	}
-//	logrus.Println(url)
-//	errs := json.NewEncoder(writer).Encode(url)
-//	if errs != nil {
-//		logrus.Error(err)
-//		writer.WriteHeader(http.StatusInternalServerError)
-//		return
-//	}
-//}
-
 func UploadImages(w http.ResponseWriter, r *http.Request) {
 	client := model.FirebaseClient
 
-	file, fileHeader, err := r.FormFile("image")
+	var file multipart.File
+	var fileHeader *multipart.FileHeader
+	var err error
+
+	file, fileHeader, err = r.FormFile("image")
 	err = r.ParseMultipartForm(10 << 20)
 	if err != nil {
 		logrus.Errorf("UploadImages: error in parsing multipart form err = %v", err)
@@ -110,10 +47,28 @@ func UploadImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	imageId, err := dbHelper.UploadImageFirebase(bucket, imagePath)
-	if err != nil {
-		logrus.Errorf("UploadImages: error in uploading image to firebase err = %v", err)
-		utils.RespondError(w, http.StatusInternalServerError, err, "error in uploading image to firebase")
+	productID := chi.URLParam(r, "productID")
+
+	var imageID string
+	txErr := database.Tx(func(tx *sqlx.Tx) error {
+		imageID, err = dbHelper.UploadImageFirebase(tx, bucket, imagePath)
+		if err != nil {
+			logrus.Errorf("UploadImages: error in uploading image to firebase err = %v", err)
+			utils.RespondError(w, http.StatusInternalServerError, err, "error in uploading image to firebase")
+			return err
+		}
+
+		err = dbHelper.CreateProductAttachments(tx, imageID, productID)
+		if err != nil {
+			logrus.Errorf("UploadImages: error in uploading image to firebase err = %v", err)
+			utils.RespondError(w, http.StatusInternalServerError, err, "error in uploading image to firebase")
+			return err
+		}
+		return nil
+	})
+	if txErr != nil {
+		logrus.Errorf("Transaction: error in transaction err = %v", err)
+		utils.RespondError(w, http.StatusInternalServerError, txErr, "Failed to create user")
 		return
 	}
 
@@ -123,7 +78,9 @@ func UploadImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.RespondJSON(w, http.StatusCreated, imageId)
+	utils.RespondJSON(w, http.StatusCreated, struct {
+		ImageID string
+	}{imageID})
 }
 
 func CreateUser(w http.ResponseWriter, r *http.Request) {

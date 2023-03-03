@@ -267,11 +267,17 @@ func CreateOrderStatus(db sqlx.Ext, orderId string, status model.OrderStatus) er
 	return err
 }
 
-func UploadImageFirebase(bucket, imagePath string) (string, error) {
+func UploadImageFirebase(db sqlx.Ext, bucket, imagePath string) (string, error) {
 	SQL := `INSERT INTO attachments(image_path, bucket_name) VALUES ($1, $2) RETURNING id`
 	var imageID string
-	if err := database.Audiophile.QueryRowx(SQL, imagePath, bucket).Scan(&imageID); err != nil {
+	if err := db.QueryRowx(SQL, imagePath, bucket).Scan(&imageID); err != nil {
 		return "", err
 	}
 	return imageID, nil
+}
+
+func CreateProductAttachments(db sqlx.Ext, imageID, productID string) error {
+	SQL := `INSERT INTO product_attachment(attachment_id, product_id) VALUES ($1, $2)`
+	_, err := db.Exec(SQL, imageID, productID)
+	return err
 }
