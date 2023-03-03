@@ -6,154 +6,95 @@ import (
 	"audio_phile/middleware"
 	"audio_phile/model"
 	"audio_phile/utils"
-	cloud "cloud.google.com/go/storage"
-	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
-	firebase "firebase.google.com/go/v4"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 	"github.com/jmoiron/sqlx"
 	"github.com/sirupsen/logrus"
-	"google.golang.org/api/option"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 )
 
-//func UploadFile(w http.ResponseWriter, r *http.Request) {
-//	// Maximum upload of 10 MB files
-//	err := r.ParseMultipartForm(10 << 20)
-//	if err != nil {
-//		return
-//	}
-//
-//	// Get handler for filename, size and headers
-//	file, handler, err := r.FormFile("myFile")
-//	if err != nil {
-//		utils.RespondError(w, http.StatusBadRequest, err, "Error Retrieving the File")
-//		logrus.Println(err)
-//		return
-//	}
-//
-//	defer func(file multipart.File) {
-//		err := file.Close()
-//		if err != nil {
-//			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to close file")
-//		}
-//	}(file)
-//	logrus.Printf("Uploaded File: %+v\n", handler.Filename)
-//	logrus.Printf("File Size: %+v\n", handler.Size)
-//	logrus.Printf("MIME Header: %+v\n", handler.Header)
-//
-//	// Create file
-//	dst, err := os.Create(handler.Filename)
-//	defer func(dst *os.File) {
-//		err := dst.Close()
-//		if err != nil {
-//			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to close file")
-//		}
-//	}(dst)
-//	if err != nil {
-//		http.Error(w, err.Error(), http.StatusInternalServerError)
-//		return
-//	}
-//
-//	// Copy the uploaded file to the created file on the filesystem
-//	if _, err := io.Copy(dst, file); err != nil {
-//		http.Error(w, err.Error(), http.StatusInternalServerError)
-//		return
-//	}
-//
-//	utils.RespondJSON(w, http.StatusOK, struct {
-//		Message string
-//	}{"Successfully Uploaded File"})
-//}
-
-//func UploadHandler(w http.ResponseWriter, r *http.Request) {
-//	// Parse the uploaded file
-//	var file multipart.File
-//	var header *multipart.FileHeader
+//func UploadImage(writer http.ResponseWriter, request *http.Request) {
+//	client := model.App{}
 //	var err error
-//	file, header, err = r.FormFile("file")
-//	if err != nil {
-//		http.Error(w, err.Error(), http.StatusBadRequest)
-//		return
-//	}
-//	defer file.Close()
-//
-//	// Authenticate with Firebase
-//	conf := &firebase.Config{
-//		StorageBucket: "gs://audiophile-c47c3.appspot.com",
-//	}
-//
-//	//opt := option.WithCredentialsFile("C:\\Users\\Vivek Gupta\\GolandProjects\\audio_phile\\audiophile-c47c3-firebase-adminsdk-qs5g0-07588b47dd.json")
+//	client.Ctx = context.Background()
 //	credentialsFile := option.WithCredentialsJSON([]byte(os.Getenv("Firebase_Storage_Credential")))
-//	app, err := firebase.NewApp(context.Background(), conf, credentialsFile)
+//	app, err := firebase.NewApp(client.Ctx, nil, credentialsFile)
 //	if err != nil {
-//		http.Error(w, err.Error(), http.StatusInternalServerError)
-//		return
-//	}
-//	client, err := app.Storage(context.Background())
-//	if err != nil {
-//		http.Error(w, err.Error(), http.StatusInternalServerError)
+//		logrus.Error(err)
 //		return
 //	}
 //
-//	// Save the file to Firebase Storage
-//	ctx := context.Background()
-//	bucket, err := client.DefaultBucket()
+//	client.Client, err = app.Firestore(client.Ctx)
 //	if err != nil {
-//		http.Error(w, err.Error(), http.StatusInternalServerError)
-//		return
-//	}
-//	obj := bucket.Object(header.Filename)
-//	wtr := obj.NewWriter(ctx)
-//	defer wtr.Close()
-//
-//	_, err = io.Copy(wtr, file)
-//	if err != nil {
-//		http.Error(w, err.Error(), http.StatusInternalServerError)
+//		logrus.Error(err)
 //		return
 //	}
 //
-//	// Return the URL of the saved file
-//	url := "https://storage.googleapis.com/" + "/" + obj.ObjectName()
-//	logrus.Printf("File uploaded successfully to %s\n", url)
+//	client.Storage, err = cloud.NewClient(client.Ctx, credentialsFile)
+//	if err != nil {
+//		logrus.Error(err)
+//		return
+//	}
+//
+//	file, fileHeader, err := request.FormFile("image")
+//	err = request.ParseMultipartForm(10 << 20)
+//	if err != nil {
+//		logrus.Error(err)
+//		writer.WriteHeader(http.StatusInternalServerError)
+//		return
+//	}
+//
+//	defer file.Close()
+//	imagePath := fileHeader.Filename + strconv.Itoa(int(time.Now().Unix()))
+//	bucket := "audiophile-c47c3.appspot.com"
+//	bucketStorage := client.Storage.Bucket(bucket).Object(imagePath).NewWriter(client.Ctx)
+//
+//	_, err = io.Copy(bucketStorage, file)
+//	if err != nil {
+//		logrus.Error(err)
+//		writer.WriteHeader(http.StatusBadRequest)
+//		return
+//	}
+//
+//	if err := bucketStorage.Close(); err != nil {
+//		logrus.Error(err)
+//		writer.WriteHeader(http.StatusBadRequest)
+//		return
+//	}
+//
+//	signedUrl := &cloud.SignedURLOptions{
+//		Scheme:  cloud.SigningSchemeV4,
+//		Method:  "GET",
+//		Expires: time.Now().Add(15 * time.Minute),
+//	}
+//	url, err := client.Storage.Bucket(bucket).SignedURL(imagePath, signedUrl)
+//	if err != nil {
+//		logrus.Error(err)
+//		return
+//	}
+//	logrus.Println(url)
+//	errs := json.NewEncoder(writer).Encode(url)
+//	if errs != nil {
+//		logrus.Error(err)
+//		writer.WriteHeader(http.StatusInternalServerError)
+//		return
+//	}
 //}
 
-func UploadImage(writer http.ResponseWriter, request *http.Request) {
-	client := model.App{}
-	var err error
-	client.Ctx = context.Background()
-	credentialsFile := option.WithCredentialsJSON([]byte(os.Getenv("Firebase_Storage_Credential")))
-	app, err := firebase.NewApp(client.Ctx, nil, credentialsFile)
-	if err != nil {
-		logrus.Error(err)
-		return
-	}
+func UploadImages(w http.ResponseWriter, r *http.Request) {
+	client := model.FirebaseClient
 
-	client.Client, err = app.Firestore(client.Ctx)
+	file, fileHeader, err := r.FormFile("image")
+	err = r.ParseMultipartForm(10 << 20)
 	if err != nil {
-		logrus.Error(err)
-		return
-	}
-
-	client.Storage, err = cloud.NewClient(client.Ctx, credentialsFile)
-	if err != nil {
-		logrus.Error(err)
-		return
-	}
-
-	file, fileHeader, err := request.FormFile("image")
-	err = request.ParseMultipartForm(10 << 20)
-	if err != nil {
-		logrus.Error(err)
-		writer.WriteHeader(http.StatusInternalServerError)
+		logrus.Errorf("UploadImages: error in parsing multipart form err = %v", err)
+		utils.RespondError(w, http.StatusInternalServerError, err, "error in parsing multipart form")
 		return
 	}
 
@@ -164,34 +105,25 @@ func UploadImage(writer http.ResponseWriter, request *http.Request) {
 
 	_, err = io.Copy(bucketStorage, file)
 	if err != nil {
-		logrus.Error(err)
-		writer.WriteHeader(http.StatusBadRequest)
+		logrus.Errorf("UploadImages: error in file copying err: %v", err)
+		utils.RespondError(w, http.StatusBadGateway, err, "error in file copying err")
+		return
+	}
+
+	imageId, err := dbHelper.UploadImageFirebase(bucket, imagePath)
+	if err != nil {
+		logrus.Errorf("UploadImages: error in uploading image to firebase err = %v", err)
+		utils.RespondError(w, http.StatusInternalServerError, err, "error in uploading image to firebase")
 		return
 	}
 
 	if err := bucketStorage.Close(); err != nil {
-		logrus.Error(err)
-		writer.WriteHeader(http.StatusBadRequest)
+		logrus.Errorf("UploadImages: error in closing firebase bucket err = %v", err)
+		utils.RespondError(w, http.StatusInternalServerError, err, "error in closing firebase bucket")
 		return
 	}
 
-	signedUrl := &cloud.SignedURLOptions{
-		Scheme:  cloud.SigningSchemeV4,
-		Method:  "GET",
-		Expires: time.Now().Add(15 * time.Minute),
-	}
-	url, err := client.Storage.Bucket(bucket).SignedURL(imagePath, signedUrl)
-	if err != nil {
-		logrus.Error(err)
-		return
-	}
-	logrus.Println(url)
-	errs := json.NewEncoder(writer).Encode(url)
-	if errs != nil {
-		logrus.Error(err)
-		writer.WriteHeader(http.StatusInternalServerError)
-		return
-	}
+	utils.RespondJSON(w, http.StatusCreated, imageId)
 }
 
 func CreateUser(w http.ResponseWriter, r *http.Request) {

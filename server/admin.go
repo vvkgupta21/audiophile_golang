@@ -21,7 +21,7 @@ func AdminRoute(r chi.Router) {
 			orderStatus.Post("/{orderId}/{orderStatus}", handler.CreateOrderStatus)
 		})
 		admin.Route("/image", func(image chi.Router) {
-			image.Post("/", handler.UploadImage)
+			image.Post("/", handler.UploadImages)
 		})
 	})
 }

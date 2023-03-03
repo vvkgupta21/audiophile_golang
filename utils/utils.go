@@ -1,13 +1,19 @@
 package utils
 
 import (
+	"audio_phile/model"
+	cloud "cloud.google.com/go/storage"
+	"context"
 	"encoding/json"
+	firebase "firebase.google.com/go/v4"
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"github.com/teris-io/shortid"
 	"golang.org/x/crypto/bcrypt"
+	"google.golang.org/api/option"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -90,4 +96,31 @@ func HashPassword(password string) (string, error) {
 
 func CheckPassword(password, hashedPassword string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+}
+
+func GetFirebaseClient() (*model.App, error) {
+	client := &model.App{}
+	client.Ctx = context.Background()
+	credentialsFile := option.WithCredentialsJSON([]byte(GetEnvValue("Firebase_Storage_Credential")))
+	app, err := firebase.NewApp(client.Ctx, nil, credentialsFile)
+	if err != nil {
+		return client, err
+	}
+
+	client.Client, err = app.Firestore(client.Ctx)
+	if err != nil {
+		return client, err
+	}
+
+	client.Storage, err = cloud.NewClient(client.Ctx, credentialsFile)
+	if err != nil {
+		return client, err
+	}
+
+	return client, nil
+}
+
+func GetEnvValue(key string) string {
+	value := os.Getenv(key)
+	return value
 }
