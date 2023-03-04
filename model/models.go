@@ -82,6 +82,13 @@ type Products struct {
 	IsAvailable bool     `json:"isAvailable" db:"is_available"`
 	Quantity    int      `json:"quantity" db:"quantity"`
 	Category    Category `json:"category" db:"category"`
+	BucketName  string   `json:"bucket_name" db:"bucket_name"`
+	Path        string   `json:"image_path" db:"image_path"`
+}
+
+type Images struct {
+	ImageID   string `json:"imageID" db:"id"`
+	ImagePath string `json:"imagePath" db:"image_path"`
 }
 
 type User struct {

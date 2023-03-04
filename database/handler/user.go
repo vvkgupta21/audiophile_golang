@@ -6,6 +6,7 @@ import (
 	"audio_phile/middleware"
 	"audio_phile/model"
 	"audio_phile/utils"
+	cloud "cloud.google.com/go/storage"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -257,14 +258,47 @@ func CreateProduct(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetAllProduct(w http.ResponseWriter, r *http.Request) {
-	list, err := dbHelper.GetAllProduct()
+	//list, err := dbHelper.GetAllProduct()
+	list, err := dbHelper.GetAllProductWithImage()
 	logrus.Println(list)
 	if err != nil {
 		return
 	}
-	err = utils.EncodeJSONBody(w, list)
-	if err != nil {
-		return
+
+	client := model.FirebaseClient
+
+	for _, product := range list {
+		signedUrl := &cloud.SignedURLOptions{
+			Scheme:  cloud.SigningSchemeV4,
+			Method:  "GET",
+			Expires: time.Now().Add(15 * time.Minute),
+		}
+		url, err := client.Storage.Bucket(product.BucketName).SignedURL(product.Path, signedUrl)
+		if err != nil {
+			logrus.Errorf("GetAllProducts: error in generating image url err: %v", err)
+			utils.RespondError(w, http.StatusInternalServerError, err, "error in generating image url")
+			return
+		}
+
+		utils.RespondJSON(w, http.StatusOK, struct {
+			Id          string
+			Name        string
+			Price       int
+			Description string
+			IsAvailable bool
+			Quantity    int
+			Category    model.Category
+			ImageUrl    string
+		}{
+			Id:          product.ProductId,
+			Name:        product.Name,
+			Price:       product.Price,
+			Description: product.Description,
+			IsAvailable: product.IsAvailable,
+			Quantity:    product.Quantity,
+			Category:    product.Category,
+			ImageUrl:    url,
+		})
 	}
 }
 
@@ -608,6 +642,23 @@ func GetUserAddress(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+}
+
+func GetAllImageByProductId(w http.ResponseWriter, r *http.Request) {
+	productID := chi.URLParam(r, "productID")
+	list, err := dbHelper.GetImageByProductID(productID)
+
+	if err != nil {
+		logrus.Errorf("FetchImages: error in getting image err = %v", err)
+		utils.RespondError(w, http.StatusInternalServerError, err, "error in getting image")
+		return
+	}
+
+	err = utils.EncodeJSONBody(w, list)
+	if err != nil {
+		return
+	}
+
 }
 
 //func GetCartProductIds(w http.ResponseWriter, r *http.Request) {

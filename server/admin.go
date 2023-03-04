@@ -22,6 +22,7 @@ func AdminRoute(r chi.Router) {
 		})
 		admin.Route("/image", func(image chi.Router) {
 			image.Post("/{productID}", handler.UploadImages)
+			image.Get("/{productID}", handler.GetAllImageByProductId)
 		})
 	})
 }

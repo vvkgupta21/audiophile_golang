@@ -109,6 +109,15 @@ func IsProductExist(name string) (bool, error) {
 	return true, nil
 }
 
+func GetImageByProductID(productID string) ([]model.Images, error) {
+	SQL := `SELECT a.id, 
+       a.image_path
+FROM attachments a INNER JOIN product_attachment pa on a.id = pa.attachment_id WHERE pa.product_id = $1 AND a.archived_at IS NULL`
+	list := make([]model.Images, 0)
+	err := database.Audiophile.Select(&list, SQL, productID)
+	return list, err
+}
+
 func GetAllProduct() ([]model.Products, error) {
 	SQL := `SELECT id, 
        			   name, 
@@ -201,6 +210,23 @@ func GetCartWithProduct(db *sqlx.DB, userId string) ([]model.CartProduct, error)
 FROM products p INNER JOIN cart_products cp ON p.id = cp.product_id INNER JOIN carts c on cp.cart_id = c.id WHERE user_id = $1 AND cp.archived_at IS NULL `
 	list := make([]model.CartProduct, 0)
 	err := db.Select(&list, SQL, userId)
+	return list, err
+}
+
+func GetAllProductWithImage() ([]model.Products, error) {
+	SQL := `SELECT p.id,
+      			   p.name,
+      			   p.price,
+      			   p.description,
+      			   p.is_available,
+      			   p.quantity,
+      			   p.category,
+      			   a.bucket_name,
+      			   a.image_path
+           FROM products p INNER JOIN product_attachment pa on p.id = pa.product_id INNER JOIN attachments a on a.id = pa.attachment_id WHERE p.archived_at is null `
+
+	list := make([]model.Products, 0)
+	err := database.Audiophile.Select(&list, SQL)
 	return list, err
 }
 
