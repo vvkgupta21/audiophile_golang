@@ -304,11 +304,51 @@ func GetAllProduct(w http.ResponseWriter, r *http.Request) {
 
 func GetProductById(w http.ResponseWriter, r *http.Request) {
 	productId := chi.URLParam(r, "id")
-	productDetail, err := dbHelper.GetProductById(productId)
+	var product model.Products
+	var productDetails model.ProductDetails
+	var err error
+
+	product, err = dbHelper.GetProductById(productId)
 	if err != nil {
 		return
 	}
-	utils.RespondJSON(w, http.StatusOK, productDetail)
+
+	var imageDetail []model.Images
+	imgSlice := make([]string, 0)
+
+	imageDetail, err = dbHelper.GetImageByProductID(productId)
+
+	if err != nil {
+		return
+	}
+
+	client := model.FirebaseClient
+
+	for _, product := range imageDetail {
+		signedUrl := &cloud.SignedURLOptions{
+			Scheme:  cloud.SigningSchemeV4,
+			Method:  "GET",
+			Expires: time.Now().Add(15 * time.Minute),
+		}
+		url, err := client.Storage.Bucket(product.BucketName).SignedURL(product.ImagePath, signedUrl)
+		if err != nil {
+			logrus.Errorf("GetAllProducts: error in generating image url err: %v", err)
+			utils.RespondError(w, http.StatusInternalServerError, err, "error in generating image url")
+			return
+		}
+		imgSlice = append(imgSlice, url)
+	}
+
+	productDetails.ProductId = product.ProductId
+	productDetails.Name = product.Name
+	productDetails.Description = product.Description
+	productDetails.Category = product.Category
+	productDetails.Quantity = product.Quantity
+	productDetails.IsAvailable = product.IsAvailable
+	productDetails.Price = product.Price
+	productDetails.ImageUrl = imgSlice
+
+	utils.RespondJSON(w, http.StatusOK, productDetails)
 }
 
 func CreatedAddress(w http.ResponseWriter, r *http.Request) {
@@ -646,7 +686,7 @@ func GetUserAddress(w http.ResponseWriter, r *http.Request) {
 
 func GetAllImageByProductId(w http.ResponseWriter, r *http.Request) {
 	productID := chi.URLParam(r, "productID")
-	list, err := dbHelper.GetImageByProductID(productID)
+	imageDetails, err := dbHelper.GetImageByProductID(productID)
 
 	if err != nil {
 		logrus.Errorf("FetchImages: error in getting image err = %v", err)
@@ -654,9 +694,28 @@ func GetAllImageByProductId(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = utils.EncodeJSONBody(w, list)
-	if err != nil {
-		return
+	client := model.FirebaseClient
+
+	for _, product := range imageDetails {
+		signedUrl := &cloud.SignedURLOptions{
+			Scheme:  cloud.SigningSchemeV4,
+			Method:  "GET",
+			Expires: time.Now().Add(15 * time.Minute),
+		}
+		url, err := client.Storage.Bucket(product.BucketName).SignedURL(product.ImagePath, signedUrl)
+		if err != nil {
+			logrus.Errorf("GetAllProducts: error in generating image url err: %v", err)
+			utils.RespondError(w, http.StatusInternalServerError, err, "error in generating image url")
+			return
+		}
+
+		utils.RespondJSON(w, http.StatusOK, struct {
+			Id       string
+			ImageUrl string
+		}{
+			Id:       product.ImageID,
+			ImageUrl: url,
+		})
 	}
 
 }

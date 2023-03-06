@@ -111,7 +111,8 @@ func IsProductExist(name string) (bool, error) {
 
 func GetImageByProductID(productID string) ([]model.Images, error) {
 	SQL := `SELECT a.id, 
-       a.image_path
+       a.image_path,
+       a.bucket_name
 FROM attachments a INNER JOIN product_attachment pa on a.id = pa.attachment_id WHERE pa.product_id = $1 AND a.archived_at IS NULL`
 	list := make([]model.Images, 0)
 	err := database.Audiophile.Select(&list, SQL, productID)

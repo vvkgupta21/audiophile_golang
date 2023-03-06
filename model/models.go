@@ -86,9 +86,31 @@ type Products struct {
 	Path        string   `json:"image_path" db:"image_path"`
 }
 
+type ProductImage struct {
+	ImageUrl string `json:"imageUrl"`
+}
+
+type Img struct {
+	Img []ProductImage `json:"img"`
+}
+
+type ProductDetails struct {
+	ProductId   string   `json:"productId" db:"id"`
+	Name        string   `json:"name" db:"name"`
+	Price       int      `json:"price" db:"price"`
+	Description string   `json:"description" db:"description"`
+	IsAvailable bool     `json:"isAvailable" db:"is_available"`
+	Quantity    int      `json:"quantity" db:"quantity"`
+	Category    Category `json:"category" db:"category"`
+	BucketName  string   `json:"bucket_name" db:"bucket_name"`
+	Path        string   `json:"image_path" db:"image_path"`
+	ImageUrl    []string `json:"imageUrl"`
+}
+
 type Images struct {
-	ImageID   string `json:"imageID" db:"id"`
-	ImagePath string `json:"imagePath" db:"image_path"`
+	ImageID    string `json:"imageID" db:"id"`
+	ImagePath  string `json:"imagePath" db:"image_path"`
+	BucketName string `json:"bucketName" db:"bucket_name"`
 }
 
 type User struct {
