@@ -17,5 +17,12 @@ func AdminRoute(r chi.Router) {
 			user.Get("/{id}", handler.GetUserByUserId)
 			user.Delete("/{id}", handler.DeleteUserByUserId)
 		})
+		admin.Route("/status", func(orderStatus chi.Router) {
+			orderStatus.Post("/{orderId}/{orderStatus}", handler.CreateOrderStatus)
+		})
+		admin.Route("/image", func(image chi.Router) {
+			image.Post("/{productID}", handler.UploadImages)
+			image.Get("/{productID}", handler.GetAllImageByProductId)
+		})
 	})
 }

@@ -6,6 +6,7 @@ import (
 	"audio_phile/middleware"
 	"audio_phile/model"
 	"audio_phile/utils"
+	cloud "cloud.google.com/go/storage"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,9 +14,75 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/jmoiron/sqlx"
 	"github.com/sirupsen/logrus"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"strconv"
+	"time"
 )
+
+func UploadImages(w http.ResponseWriter, r *http.Request) {
+	client := model.FirebaseClient
+
+	var file multipart.File
+	var fileHeader *multipart.FileHeader
+	var err error
+
+	file, fileHeader, err = r.FormFile("image")
+	err = r.ParseMultipartForm(10 << 20)
+	if err != nil {
+		logrus.Errorf("UploadImages: error in parsing multipart form err = %v", err)
+		utils.RespondError(w, http.StatusInternalServerError, err, "error in parsing multipart form")
+		return
+	}
+
+	defer file.Close()
+	imagePath := fileHeader.Filename + strconv.Itoa(int(time.Now().Unix()))
+	bucket := "audiophile-c47c3.appspot.com"
+	bucketStorage := client.Storage.Bucket(bucket).Object(imagePath).NewWriter(client.Ctx)
+
+	_, err = io.Copy(bucketStorage, file)
+	if err != nil {
+		logrus.Errorf("UploadImages: error in file copying err: %v", err)
+		utils.RespondError(w, http.StatusBadGateway, err, "error in file copying err")
+		return
+	}
+
+	productID := chi.URLParam(r, "productID")
+
+	var imageID string
+	txErr := database.Tx(func(tx *sqlx.Tx) error {
+		imageID, err = dbHelper.UploadImageFirebase(tx, bucket, imagePath)
+		if err != nil {
+			logrus.Errorf("UploadImages: error in uploading image to firebase err = %v", err)
+			utils.RespondError(w, http.StatusInternalServerError, err, "error in uploading image to firebase")
+			return err
+		}
+
+		err = dbHelper.CreateProductAttachments(tx, imageID, productID)
+		if err != nil {
+			logrus.Errorf("UploadImages: error in uploading image to firebase err = %v", err)
+			utils.RespondError(w, http.StatusInternalServerError, err, "error in uploading image to firebase")
+			return err
+		}
+		return nil
+	})
+	if txErr != nil {
+		logrus.Errorf("Transaction: error in transaction err = %v", err)
+		utils.RespondError(w, http.StatusInternalServerError, txErr, "Failed to create user")
+		return
+	}
+
+	if err := bucketStorage.Close(); err != nil {
+		logrus.Errorf("UploadImages: error in closing firebase bucket err = %v", err)
+		utils.RespondError(w, http.StatusInternalServerError, err, "error in closing firebase bucket")
+		return
+	}
+
+	utils.RespondJSON(w, http.StatusCreated, struct {
+		ImageID string
+	}{imageID})
+}
 
 func CreateUser(w http.ResponseWriter, r *http.Request) {
 	var body model.UserRequestBody
@@ -191,24 +258,97 @@ func CreateProduct(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetAllProduct(w http.ResponseWriter, r *http.Request) {
-	list, err := dbHelper.GetAllProduct()
+	//list, err := dbHelper.GetAllProduct()
+	list, err := dbHelper.GetAllProductWithImage()
 	logrus.Println(list)
 	if err != nil {
 		return
 	}
-	err = utils.EncodeJSONBody(w, list)
-	if err != nil {
-		return
+
+	client := model.FirebaseClient
+
+	for _, product := range list {
+		signedUrl := &cloud.SignedURLOptions{
+			Scheme:  cloud.SigningSchemeV4,
+			Method:  "GET",
+			Expires: time.Now().Add(15 * time.Minute),
+		}
+		url, err := client.Storage.Bucket(product.BucketName).SignedURL(product.Path, signedUrl)
+		if err != nil {
+			logrus.Errorf("GetAllProducts: error in generating image url err: %v", err)
+			utils.RespondError(w, http.StatusInternalServerError, err, "error in generating image url")
+			return
+		}
+
+		utils.RespondJSON(w, http.StatusOK, struct {
+			Id          string
+			Name        string
+			Price       int
+			Description string
+			IsAvailable bool
+			Quantity    int
+			Category    model.Category
+			ImageUrl    string
+		}{
+			Id:          product.ProductId,
+			Name:        product.Name,
+			Price:       product.Price,
+			Description: product.Description,
+			IsAvailable: product.IsAvailable,
+			Quantity:    product.Quantity,
+			Category:    product.Category,
+			ImageUrl:    url,
+		})
 	}
 }
 
 func GetProductById(w http.ResponseWriter, r *http.Request) {
 	productId := chi.URLParam(r, "id")
-	productDetail, err := dbHelper.GetProductById(productId)
+	var product model.Products
+	var productDetails model.ProductDetails
+	var err error
+
+	product, err = dbHelper.GetProductById(productId)
 	if err != nil {
 		return
 	}
-	utils.RespondJSON(w, http.StatusOK, productDetail)
+
+	var imageDetail []model.Images
+	imgSlice := make([]string, 0)
+
+	imageDetail, err = dbHelper.GetImageByProductID(productId)
+
+	if err != nil {
+		return
+	}
+
+	client := model.FirebaseClient
+
+	for _, product := range imageDetail {
+		signedUrl := &cloud.SignedURLOptions{
+			Scheme:  cloud.SigningSchemeV4,
+			Method:  "GET",
+			Expires: time.Now().Add(15 * time.Minute),
+		}
+		url, err := client.Storage.Bucket(product.BucketName).SignedURL(product.ImagePath, signedUrl)
+		if err != nil {
+			logrus.Errorf("GetAllProducts: error in generating image url err: %v", err)
+			utils.RespondError(w, http.StatusInternalServerError, err, "error in generating image url")
+			return
+		}
+		imgSlice = append(imgSlice, url)
+	}
+
+	productDetails.ProductId = product.ProductId
+	productDetails.Name = product.Name
+	productDetails.Description = product.Description
+	productDetails.Category = product.Category
+	productDetails.Quantity = product.Quantity
+	productDetails.IsAvailable = product.IsAvailable
+	productDetails.Price = product.Price
+	productDetails.ImageUrl = imgSlice
+
+	utils.RespondJSON(w, http.StatusOK, productDetails)
 }
 
 func CreatedAddress(w http.ResponseWriter, r *http.Request) {
@@ -422,7 +562,7 @@ func DeleteProductFromCart(w http.ResponseWriter, r *http.Request) {
 	cartProductId := chi.URLParam(r, "cartId")
 	productId := chi.URLParam(r, "productId")
 
-	err := dbHelper.DeleteProductFromCart(cartProductId, productId)
+	err := dbHelper.UpdateProductFromCart(database.Audiophile, cartProductId, productId)
 	if err != nil {
 		return
 	}
@@ -433,14 +573,180 @@ func DeleteProductFromCart(w http.ResponseWriter, r *http.Request) {
 }
 
 func CreateOrder(w http.ResponseWriter, r *http.Request) {
-	cartProductId := chi.URLParam(r, "cartId")
-	orderId, err := dbHelper.CreateOrder(cartProductId)
+	cartId := chi.URLParam(r, "cartId")
+	addressId := chi.URLParam(r, "addressId")
+
+	active, activeErr := dbHelper.IsCartIsActive(cartId)
+
+	if active == model.CartStatusInActive {
+		utils.RespondError(w, http.StatusBadRequest, activeErr, "Cart is not active")
+		return
+	}
+
+	if activeErr != nil {
+		utils.RespondError(w, http.StatusInternalServerError, activeErr, "Failed to check cart status")
+		return
+	}
+
+	productDetail, err := dbHelper.GetCartProductByID(cartId)
 	if err != nil {
+		return
+	}
+
+	txErr := database.Tx(func(tx *sqlx.Tx) error {
+		err := dbHelper.CreateOrder(tx, cartId, model.OrderStatusOrdered, addressId)
+		if err != nil {
+			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to create order")
+			return err
+		}
+
+		for _, v := range productDetail {
+			err = dbHelper.UpdateProductQuantity(tx, v.ProductId, v.Quantity)
+			if err != nil {
+				utils.RespondError(w, http.StatusInternalServerError, err, "Failed to update the quantity")
+				return err
+			}
+
+			err := dbHelper.UpdateProductFromCart(tx, cartId, v.ProductId)
+
+			if err != nil {
+				utils.RespondError(w, http.StatusInternalServerError, err, "Failed to delete product from cart")
+				return err
+			}
+		}
+
+		err = dbHelper.UpdateCartToInactive(tx, cartId, model.CartStatusInActive)
+
+		if err != nil {
+			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to update status of cart")
+			return err
+		}
+
+		return nil
+	})
+	// error message correct karo
+	if txErr != nil {
+		utils.RespondError(w, http.StatusInternalServerError, txErr, "transaction error")
 		return
 	}
 
 	utils.RespondJSON(w, http.StatusOK, struct {
 		Message string
-		OrderId string
-	}{Message: "Order placed successfully", OrderId: orderId})
+	}{Message: "Order placed successfully"})
 }
+
+func CreateOrderStatus(w http.ResponseWriter, r *http.Request) {
+	orderId := chi.URLParam(r, "orderId")
+	status := chi.URLParam(r, "orderStatus")
+	var orderStatus model.OrderStatus
+	if status == "shipping" {
+		orderStatus = model.OrderStatusShipping
+	} else if status == "delivered" {
+		orderStatus = model.OrderStatusDelivered
+	}
+	////var body model.PlacedOrderStatus
+	//var status string
+	//if err := utils.ParseBody(r.Body, &status); err != nil {
+	//	utils.RespondError(w, http.StatusBadRequest, err, "Failed to parse request body")
+	//	return
+	//}
+	//parseBody := model.PlacedOrderStatus{
+	//	Status: body.Status,
+	//}
+	//validate := validator.New()
+	//if err := validate.Struct(parseBody); err != nil {
+	//	utils.RespondError(w, http.StatusBadRequest, err, "input field is invalid")
+	//	return
+	//}
+
+	err := dbHelper.CreateOrderStatus(database.Audiophile, orderId, orderStatus)
+
+	if err != nil {
+		utils.RespondError(w, http.StatusInternalServerError, err, "Failed to create order status")
+		return
+	}
+
+	utils.RespondJSON(w, http.StatusCreated, struct {
+		Message string
+	}{"order status changed"})
+}
+
+func GetUserAddress(w http.ResponseWriter, r *http.Request) {
+	userId := getUserId(r)
+	userAddress, err := dbHelper.GetAddress(database.Audiophile, userId)
+	logrus.Println(userAddress)
+	if err != nil {
+		return
+	}
+	err = utils.EncodeJSONBody(w, userAddress)
+	if err != nil {
+		return
+	}
+}
+
+func GetAllImageByProductId(w http.ResponseWriter, r *http.Request) {
+	productID := chi.URLParam(r, "productID")
+	imageDetails, err := dbHelper.GetImageByProductID(productID)
+
+	if err != nil {
+		logrus.Errorf("FetchImages: error in getting image err = %v", err)
+		utils.RespondError(w, http.StatusInternalServerError, err, "error in getting image")
+		return
+	}
+
+	client := model.FirebaseClient
+
+	for _, product := range imageDetails {
+		signedUrl := &cloud.SignedURLOptions{
+			Scheme:  cloud.SigningSchemeV4,
+			Method:  "GET",
+			Expires: time.Now().Add(15 * time.Minute),
+		}
+		url, err := client.Storage.Bucket(product.BucketName).SignedURL(product.ImagePath, signedUrl)
+		if err != nil {
+			logrus.Errorf("GetAllProducts: error in generating image url err: %v", err)
+			utils.RespondError(w, http.StatusInternalServerError, err, "error in generating image url")
+			return
+		}
+
+		utils.RespondJSON(w, http.StatusOK, struct {
+			Id       string
+			ImageUrl string
+		}{
+			Id:       product.ImageID,
+			ImageUrl: url,
+		})
+	}
+
+}
+
+//func GetCartProductIds(w http.ResponseWriter, r *http.Request) {
+//	cartProductId := chi.URLParam(r, "cartId")
+//	body, err := dbHelper.GetCartProductIdByID(cartProductId)
+//	if err != nil {
+//		return
+//	}
+//	utils.RespondJSON(w, http.StatusOK, body)
+//}
+
+//func UpdateProductQuantity(w http.ResponseWriter, r *http.Request) {
+//	productId := chi.URLParam(r, "productId")
+//	quantityStr := chi.URLParam(r, "quantity")
+//	quantity, err := strconv.Atoi(quantityStr)
+//
+//	if err != nil {
+//		utils.RespondError(w, http.StatusInternalServerError, err, "error in fetching quantity")
+//		return
+//	}
+//
+//	err = dbHelper.UpdateProductQuantity(productId, quantity)
+//
+//	if err != nil {
+//		utils.RespondError(w, http.StatusInternalServerError, err, "Failed to update the quantity")
+//		return
+//	}
+//
+//	utils.RespondJSON(w, http.StatusOK, struct {
+//		Message string
+//	}{"Product quantity updated successfully"})
+//}

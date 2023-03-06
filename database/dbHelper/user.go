@@ -109,6 +109,16 @@ func IsProductExist(name string) (bool, error) {
 	return true, nil
 }
 
+func GetImageByProductID(productID string) ([]model.Images, error) {
+	SQL := `SELECT a.id, 
+       a.image_path,
+       a.bucket_name
+FROM attachments a INNER JOIN product_attachment pa on a.id = pa.attachment_id WHERE pa.product_id = $1 AND a.archived_at IS NULL`
+	list := make([]model.Images, 0)
+	err := database.Audiophile.Select(&list, SQL, productID)
+	return list, err
+}
+
 func GetAllProduct() ([]model.Products, error) {
 	SQL := `SELECT id, 
        			   name, 
@@ -204,6 +214,23 @@ FROM products p INNER JOIN cart_products cp ON p.id = cp.product_id INNER JOIN c
 	return list, err
 }
 
+func GetAllProductWithImage() ([]model.Products, error) {
+	SQL := `SELECT p.id,
+      			   p.name,
+      			   p.price,
+      			   p.description,
+      			   p.is_available,
+      			   p.quantity,
+      			   p.category,
+      			   a.bucket_name,
+      			   a.image_path
+           FROM products p INNER JOIN product_attachment pa on p.id = pa.product_id INNER JOIN attachments a on a.id = pa.attachment_id WHERE p.archived_at is null `
+
+	list := make([]model.Products, 0)
+	err := database.Audiophile.Select(&list, SQL)
+	return list, err
+}
+
 func GetCartProductQuantity(cartId string, productId string) (model.QuantityOfProductInCart, error) {
 	SQL := `SELECT cart_id, product_id, quantity FROM cart_products WHERE cart_id = $1 AND product_id = $2`
 	var cartDetail model.QuantityOfProductInCart
@@ -222,24 +249,62 @@ func RemoveProductQuantityInCart(cartId, productId string) error {
 	SQL := `UPDATE cart_products SET quantity = cart_products.quantity - 1 WHERE cart_id = $1 AND product_id = $2`
 	_, err := database.Audiophile.Exec(SQL, cartId, productId)
 	return err
-
 }
 
-func DeleteProductFromCart(cartId, productId string) error {
+func UpdateProductFromCart(db sqlx.Ext, cartId, productId string) error {
 	SQL := `UPDATE cart_products SET archived_at = Now() WHERE cart_id = $1 AND product_id = $2`
-	_, err := database.Audiophile.Exec(SQL, cartId, productId)
+	_, err := db.Exec(SQL, cartId, productId)
 	return err
 }
 
-func CreateOrder(cartProductId string) (string, error) {
-	SQL := `INSERT INTO orders(cart_id) VALUES ($1) RETURNING id`
-	var orderId string
-	err := database.Audiophile.QueryRowx(SQL, cartProductId).Scan(&orderId)
-	return orderId, err
+func CreateOrder(db sqlx.Ext, cartProductId string, orderStatus model.OrderStatus, addressId string) error {
+	SQL := `INSERT INTO orders(cart_id, order_status, address_id) VALUES ($1, $2, $3)`
+	_, err := db.Exec(SQL, cartProductId, orderStatus, addressId)
+	return err
+}
+func GetCartProductByID(cartId string) ([]model.ProductMinimalDetails, error) {
+	SQL := `SELECT product_id, quantity FROM cart_products WHERE cart_id = $1 AND archived_at IS NULL`
+	list := make([]model.ProductMinimalDetails, 0)
+	err := database.Audiophile.Select(&list, SQL, cartId)
+	return list, err
 }
 
-func UpdateProductQuantity(productId string, quantity int) error {
-	SQL := `UPDATE products SET quantity = products.quantity - $1 WHERE id = $2`
-	_, err := database.Audiophile.Exec(SQL, quantity, productId)
+func UpdateProductQuantity(db sqlx.Ext, productId string, quantity int) error {
+	SQL := `UPDATE products SET quantity = products.quantity - $2 WHERE id = $1`
+	_, err := db.Exec(SQL, productId, quantity)
+	return err
+}
+
+func IsCartIsActive(cartId string) (model.Status, error) {
+	SQL := `SELECT status FROM carts WHERE id = $1`
+	var status model.Status
+	err := database.Audiophile.Get(&status, SQL, cartId)
+	return status, err
+}
+
+func UpdateCartToInactive(db sqlx.Ext, cartId string, status model.Status) error {
+	SQL := `UPDATE carts SET status = $1 WHERE id = $2`
+	_, err := db.Exec(SQL, status, cartId)
+	return err
+}
+
+func CreateOrderStatus(db sqlx.Ext, orderId string, status model.OrderStatus) error {
+	SQL := `UPDATE orders SET order_status = $1 WHERE id = $2`
+	_, err := db.Exec(SQL, status, orderId)
+	return err
+}
+
+func UploadImageFirebase(db sqlx.Ext, bucket, imagePath string) (string, error) {
+	SQL := `INSERT INTO attachments(image_path, bucket_name) VALUES ($1, $2) RETURNING id`
+	var imageID string
+	if err := db.QueryRowx(SQL, imagePath, bucket).Scan(&imageID); err != nil {
+		return "", err
+	}
+	return imageID, nil
+}
+
+func CreateProductAttachments(db sqlx.Ext, imageID, productID string) error {
+	SQL := `INSERT INTO product_attachment(attachment_id, product_id) VALUES ($1, $2)`
+	_, err := db.Exec(SQL, imageID, productID)
 	return err
 }
