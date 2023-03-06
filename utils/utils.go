@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	firebase "firebase.google.com/go/v4"
 	"fmt"
+	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"github.com/teris-io/shortid"
 	"golang.org/x/crypto/bcrypt"
@@ -118,6 +119,14 @@ func GetFirebaseClient() (*model.App, error) {
 	}
 
 	return client, nil
+}
+
+func LoadEnv(filename string) error {
+	err := godotenv.Load(filename)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func GetEnvValue(key string) string {

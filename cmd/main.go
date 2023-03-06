@@ -6,21 +6,21 @@ import (
 	"audio_phile/server"
 	"audio_phile/utils"
 	"github.com/sirupsen/logrus"
+	"os"
+	"os/signal"
+	"time"
 )
 
 func main() {
-	srv := server.SetupRoutes()
-	err := database.ConnectAndMigrate(
-		"localhost",
-		"5434",
-		"postgres",
-		"local",
-		"local",
-		database.SSLModeDisable)
+
+	done := make(chan os.Signal)
+	signal.Notify(done, os.Interrupt)
+
+	err := utils.LoadEnv(".env")
 	if err != nil {
-		logrus.Panicf("Failed to initialize and migrate database with error: %+v", err)
+		logrus.Errorf("Environment variables loading failed.; %s", err.Error())
+		return
 	}
-	logrus.Info("migration successfully!!")
 
 	model.FirebaseClient, err = utils.GetFirebaseClient()
 	if err != nil {
@@ -28,8 +28,24 @@ func main() {
 		return
 	}
 
-	if err := srv.Run(":8000"); err != nil {
-		logrus.Fatalf("Failed to run server with error %+v", err)
+	//port := utils.GetEnvValue("DB_Port")
+	srv := server.SetupRoutes()
+	err = database.ConnectAndMigrate()
+	if err != nil {
+		return
 	}
-	logrus.Print("Server started at : 8000")
+
+	go func() {
+		if err := srv.Run(":8000"); err != nil {
+			logrus.Errorf("Server not shut down gracefully; %s", err.Error())
+			return
+		}
+	}()
+
+	<-done
+	database.CloseDb()
+	if err := srv.Stop(5 * time.Second); err != nil {
+		logrus.Errorf("Server not shut down gracefully; %s", err.Error())
+		return
+	}
 }

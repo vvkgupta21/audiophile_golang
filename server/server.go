@@ -3,6 +3,7 @@ package server
 import (
 	"audio_phile/database/handler"
 	"audio_phile/middleware"
+	"context"
 	"github.com/go-chi/chi/v5"
 	"net/http"
 	"time"
@@ -50,4 +51,10 @@ func (srv *Server) Run(port string) error {
 		WriteTimeout:      writeTimeout,
 	}
 	return srv.server.ListenAndServe()
+}
+
+func (srv *Server) Stop(time time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time)
+	defer cancel()
+	return srv.server.Shutdown(ctx)
 }
