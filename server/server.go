@@ -2,9 +2,8 @@ package server
 
 import (
 	"audio_phile/database/handler"
-	"audio_phile/middleware"
 	"context"
-	"github.com/go-chi/chi/v5"
+	"github.com/gin-gonic/gin"
 	"net/http"
 	"time"
 )
@@ -16,36 +15,52 @@ const (
 )
 
 type Server struct {
-	chi.Router
+	*gin.Engine
 	server *http.Server
 }
 
 func SetupRoutes() *Server {
-	routes := chi.NewRouter()
-	routes.Route("/api", func(api chi.Router) {
-		api.Post("/register", handler.CreateUser)
-		api.Post("/login", handler.Login)
-		api.Route("/admin", func(admin chi.Router) {
-			admin.Use(middleware.AuthMiddleware)
-			admin.Use(middleware.AdminMiddleware)
-			admin.Group(AdminRoute)
+	//routes := chi.NewRouter()
 
-		})
-		api.Route("/user", func(user chi.Router) {
-			user.Use(middleware.AuthMiddleware)
-			user.Use(middleware.UserMiddleware)
-			user.Group(UserRoute)
-		})
-	})
+	routes := gin.Default()
+
+	api := routes.Group("/api")
+	{
+		api.POST("/register", handler.CreateUser)
+		api.POST("/login", handler.Login)
+
+	}
+
+	//routes.Group("/api")
+	//
+	//api := routes.POST("/login")
+	//{
+	//
+	//}
+	//	routes.Route("/api", func(api chi.Router) {
+	//	api.Post("/register", handler.CreateUser)
+	//	api.Post("/login", handler.Login)
+	//	api.Route("/admin", func(admin chi.Router) {
+	//		admin.Use(middleware.AuthMiddleware)
+	//		admin.Use(middleware.AdminMiddleware)
+	//		admin.Group(AdminRoute)
+	//
+	//	})
+	//	api.Route("/user", func(user chi.Router) {
+	//		user.Use(middleware.AuthMiddleware)
+	//		user.Use(middleware.UserMiddleware)
+	//		user.Group(UserRoute)
+	//	})
+	//})
 	return &Server{
-		Router: routes,
+		Engine: routes,
 	}
 }
 
 func (srv *Server) Run(port string) error {
 	srv.server = &http.Server{
 		Addr:              port,
-		Handler:           srv.Router,
+		Handler:           srv.Engine,
 		ReadTimeout:       readTimeout,
 		ReadHeaderTimeout: readHeaderTimeout,
 		WriteTimeout:      writeTimeout,

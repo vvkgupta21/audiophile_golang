@@ -8,8 +8,8 @@ import (
 	"audio_phile/utils"
 	cloud "cloud.google.com/go/storage"
 	"database/sql"
-	"errors"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 	"github.com/jmoiron/sqlx"
@@ -84,11 +84,11 @@ func UploadImages(w http.ResponseWriter, r *http.Request) {
 	}{imageID})
 }
 
-func CreateUser(w http.ResponseWriter, r *http.Request) {
+func CreateUser(ctx *gin.Context) {
 	var body model.UserRequestBody
 
-	if err := utils.ParseBody(r.Body, &body); err != nil {
-		utils.RespondError(w, http.StatusBadRequest, err, "Failed to parse request body")
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "message": "Failed to parse request body"})
 		return
 	}
 
@@ -99,30 +99,30 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	validate := validator.New()
 	if err := validate.Struct(parseBody); err != nil {
-		utils.RespondError(w, http.StatusBadRequest, err, "input field is invalid")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "message": "Invalid inputs"})
 		return
 	}
 
 	if len(body.Password) < 6 {
-		utils.RespondError(w, http.StatusBadRequest, nil, "password must be 6 chars long")
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "password must be 6 chars long"})
 		return
 	}
 
 	exist, existErr := dbHelper.IsUserExist(body.Email)
 	if exist {
-		utils.RespondError(w, http.StatusBadRequest, existErr, "User already exist")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": existErr.Error(), "message": "User already exist"})
 		return
 	}
 
 	if existErr != nil {
-		utils.RespondError(w, http.StatusInternalServerError, existErr, "Failed to check existence")
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": existErr.Error(), "message": "Failed to check existence"})
 		return
 	}
 
 	hashPassword, hasErr := utils.HashPassword(body.Password)
 
 	if hasErr != nil {
-		utils.RespondError(w, http.StatusInternalServerError, hasErr, "failed to secure password")
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": hasErr.Error(), "message": "Failed to secure password"})
 		return
 	}
 
@@ -133,7 +133,7 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 		userID, err = dbHelper.CreateUser(tx, body.Name, body.Email, hashPassword)
 
 		if err != nil {
-			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to create user")
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": hasErr.Error(), "message": "Failed to create user"})
 			return err
 		}
 
@@ -145,23 +145,26 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 	})
 	// error message correct karo
 	if txErr != nil {
-		utils.RespondError(w, http.StatusInternalServerError, txErr, "failed to create user")
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": txErr.Error(), "message": "Transaction error"})
 		return
 	}
 
-	//code could be 201
-	utils.RespondJSON(w, http.StatusCreated, model.UserResponseBody{
+	ctx.JSON(http.StatusCreated, model.UserResponseBody{
 		UserId: userID,
 		Name:   body.Name,
 		Email:  body.Email,
 	})
+
 }
 
-func Login(w http.ResponseWriter, r *http.Request) {
+func Login(ctx *gin.Context) {
 	var body model.LoginRequestBody
 
-	if err := utils.ParseBody(r.Body, &body); err != nil {
-		utils.RespondError(w, http.StatusBadRequest, err, "Failed to parse request body")
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error":   err.Error(),
+			"message": "Failed to parse request body",
+		})
 		return
 	}
 
@@ -171,7 +174,10 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	}
 	validate := validator.New()
 	if err := validate.Struct(parseBody); err != nil {
-		utils.RespondError(w, http.StatusBadRequest, err, "input field is invalid")
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error":   err.Error(),
+			"message": "Input field is invalid",
+		})
 		return
 	}
 
@@ -179,26 +185,38 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			utils.RespondError(w, http.StatusBadRequest, errors.New("user does not exist"), "user does not exist")
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"error":   err.Error(),
+				"message": "user does not exist",
+			})
 			return
 		}
-		utils.RespondError(w, http.StatusBadRequest, err, "Incorrect credentials")
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error":   err.Error(),
+			"message": "Incorrect credentials",
+		})
 		return
 	}
 
 	role, err := dbHelper.GetUserRoles(userId)
 
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, err, "error in getting user role")
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error":   err.Error(),
+			"message": "Error in getting user role",
+		})
 		return
 	}
 
 	token, err := middleware.GenerateJWT(userId, role)
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, err, "error in generating jwt token")
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error":   err.Error(),
+			"message": "Error in generating jwt token",
+		})
 		return
 	}
-	utils.RespondJSON(w, http.StatusOK, struct {
+	ctx.JSON(http.StatusCreated, struct {
 		Token string `json:"token"`
 	}{
 		Token: token,
