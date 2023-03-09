@@ -3,6 +3,8 @@ package middleware
 import (
 	"audio_phile/model"
 	"fmt"
+	"github.com/gin-gonic/gin"
+	"log"
 	"net/http"
 )
 
@@ -12,43 +14,60 @@ const (
 	UserContext ContextKeys = "userInfo"
 )
 
-func UserContextData(r *http.Request) (string, error) {
-	user := r.Context().Value(UserContext).(map[string]interface{})
-	fmt.Println(user)
-	var role string
-	role = user["role"].(string)
-	fmt.Println(role)
+//func UserContextData(ctx *gin.Context) (string, error) {
+//	user := ctx.Value(UserContext).(map[string]interface{})
+//	fmt.Println(user)
+//	var role string
+//	role = user["role"].(string)
+//	fmt.Println(role)
+//	return role, nil
+//}
+
+func UserContextData(c *gin.Context) (string, error) {
+	user, exists := c.Get(string(UserContext))
+	if !exists {
+		return "", fmt.Errorf("user context is not set")
+	}
+	userData, ok := user.(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("failed to parse user context data")
+	}
+	role, ok := userData["role"].(string)
+	if !ok {
+		return "", fmt.Errorf("user role is not a string")
+	}
 	return role, nil
 }
 
-func AdminMiddleware(handler http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		role, err := UserContextData(r)
+func AdminMiddleware() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		role, err := UserContextData(ctx)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+			ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			log.Println(err)
 			return
 		}
 		fmt.Println(role)
 		if model.Role(role) == model.RoleAdmin {
-			handler.ServeHTTP(w, r)
+			ctx.Next()
 			return
 		}
-		w.WriteHeader(http.StatusForbidden)
-	})
+		ctx.JSON(http.StatusForbidden, gin.H{"message": "user does not have the necessary permissions"})
+	}
 }
 
-func UserMiddleware(handler http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		role, err := UserContextData(r)
+func UserMiddleware() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		role, err := UserContextData(ctx)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+			ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		fmt.Println(role)
 		if model.Role(role) == model.RoleUser {
-			handler.ServeHTTP(w, r)
+			ctx.Next()
 			return
 		}
-		w.WriteHeader(http.StatusForbidden)
-	})
+		ctx.AbortWithStatus(http.StatusForbidden)
+	}
 }

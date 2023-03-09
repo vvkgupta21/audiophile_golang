@@ -21,18 +21,18 @@ import (
 	"time"
 )
 
-func UploadImages(w http.ResponseWriter, r *http.Request) {
+func UploadImages(ctx *gin.Context) {
 	client := model.FirebaseClient
 
 	var file multipart.File
 	var fileHeader *multipart.FileHeader
 	var err error
 
-	file, fileHeader, err = r.FormFile("image")
-	err = r.ParseMultipartForm(10 << 20)
+	file, fileHeader, err = ctx.Request.FormFile("image")
+	err = ctx.Request.ParseMultipartForm(10 << 20)
 	if err != nil {
 		logrus.Errorf("UploadImages: error in parsing multipart form err = %v", err)
-		utils.RespondError(w, http.StatusInternalServerError, err, "error in parsing multipart form")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "message": "error in parsing multipart form"})
 		return
 	}
 
@@ -44,42 +44,42 @@ func UploadImages(w http.ResponseWriter, r *http.Request) {
 	_, err = io.Copy(bucketStorage, file)
 	if err != nil {
 		logrus.Errorf("UploadImages: error in file copying err: %v", err)
-		utils.RespondError(w, http.StatusBadGateway, err, "error in file copying err")
+		ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "message": "error in file copying err"})
 		return
 	}
 
-	productID := chi.URLParam(r, "productID")
+	productID := ctx.Param("productID")
 
 	var imageID string
 	txErr := database.Tx(func(tx *sqlx.Tx) error {
 		imageID, err = dbHelper.UploadImageFirebase(tx, bucket, imagePath)
 		if err != nil {
 			logrus.Errorf("UploadImages: error in uploading image to firebase err = %v", err)
-			utils.RespondError(w, http.StatusInternalServerError, err, "error in uploading image to firebase")
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "error in uploading image to firebase"})
 			return err
 		}
 
 		err = dbHelper.CreateProductAttachments(tx, imageID, productID)
 		if err != nil {
 			logrus.Errorf("UploadImages: error in uploading image to firebase err = %v", err)
-			utils.RespondError(w, http.StatusInternalServerError, err, "error in uploading image to firebase")
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "error in uploading image to firebase"})
 			return err
 		}
 		return nil
 	})
 	if txErr != nil {
 		logrus.Errorf("Transaction: error in transaction err = %v", err)
-		utils.RespondError(w, http.StatusInternalServerError, txErr, "Failed to create user")
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": txErr.Error(), "message": "Failed to create user"})
 		return
 	}
 
 	if err := bucketStorage.Close(); err != nil {
 		logrus.Errorf("UploadImages: error in closing firebase bucket err = %v", err)
-		utils.RespondError(w, http.StatusInternalServerError, err, "error in closing firebase bucket")
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": txErr.Error(), "message": "error in closing firebase bucket"})
 		return
 	}
 
-	utils.RespondJSON(w, http.StatusCreated, struct {
+	ctx.JSON(http.StatusOK, struct {
 		ImageID string
 	}{imageID})
 }
@@ -223,11 +223,11 @@ func Login(ctx *gin.Context) {
 	})
 }
 
-func CreateProduct(w http.ResponseWriter, r *http.Request) {
+func CreateProduct(ctx *gin.Context) {
 	var body model.ProductsRequest
 
-	if err := utils.ParseBody(r.Body, &body); err != nil {
-		utils.RespondError(w, http.StatusBadRequest, err, "Failed to parse request body")
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "message": "Failed to parse request body"})
 		return
 	}
 
@@ -241,30 +241,29 @@ func CreateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	validate := validator.New()
 	if err := validate.Struct(parseBody); err != nil {
-		utils.RespondError(w, http.StatusBadRequest, err, "input field is invalid")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "message": "Input field is invalid"})
 		return
 	}
 
 	exist, existErr := dbHelper.IsProductExist(body.Name)
 	if exist {
-		utils.RespondError(w, http.StatusBadRequest, existErr, "Product already exist")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": existErr.Error(), "message": "Product already exist"})
 		return
 	}
 
 	if existErr != nil {
-		utils.RespondError(w, http.StatusInternalServerError, existErr, "Failed to product existence")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": existErr.Error(), "message": "Failed to product existence"})
 		return
 	}
 
 	productId, err := dbHelper.CreateProduct(database.Audiophile, body.Name, body.Description, body.IsAvailable, body.Price, body.Quantity, body.Category)
 
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, err, "Failed to create product")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": existErr.Error(), "message": "Failed to create product"})
 		return
 	}
 
-	//code could be 201
-	utils.RespondJSON(w, http.StatusCreated, model.ProductsResponse{
+	ctx.JSON(http.StatusCreated, model.ProductsResponse{
 		ProductId:   productId,
 		Name:        body.Name,
 		Price:       body.Price,
@@ -275,16 +274,14 @@ func CreateProduct(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func GetAllProduct(w http.ResponseWriter, r *http.Request) {
-	//list, err := dbHelper.GetAllProduct()
+func GetAllProduct(ctx *gin.Context) {
 	list, err := dbHelper.GetAllProductWithImage()
 	logrus.Println(list)
 	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "message": "Failed to fetch all product"})
 		return
 	}
-
 	client := model.FirebaseClient
-
 	for _, product := range list {
 		signedUrl := &cloud.SignedURLOptions{
 			Scheme:  cloud.SigningSchemeV4,
@@ -294,11 +291,11 @@ func GetAllProduct(w http.ResponseWriter, r *http.Request) {
 		url, err := client.Storage.Bucket(product.BucketName).SignedURL(product.Path, signedUrl)
 		if err != nil {
 			logrus.Errorf("GetAllProducts: error in generating image url err: %v", err)
-			utils.RespondError(w, http.StatusInternalServerError, err, "error in generating image url")
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "message": "error in generating image url"})
 			return
 		}
 
-		utils.RespondJSON(w, http.StatusOK, struct {
+		ctx.JSON(http.StatusCreated, struct {
 			Id          string
 			Name        string
 			Price       int
@@ -320,14 +317,16 @@ func GetAllProduct(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetProductById(w http.ResponseWriter, r *http.Request) {
-	productId := chi.URLParam(r, "id")
+func GetProductById(ctx *gin.Context) {
+	productId := ctx.Param("id")
 	var product model.Products
 	var productDetails model.ProductDetails
 	var err error
 
 	product, err = dbHelper.GetProductById(productId)
 	if err != nil {
+		logrus.Errorf("Get Product Detail: error in getting product details: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Error in fetching product details"})
 		return
 	}
 
@@ -337,6 +336,8 @@ func GetProductById(w http.ResponseWriter, r *http.Request) {
 	imageDetail, err = dbHelper.GetImageByProductID(productId)
 
 	if err != nil {
+		logrus.Errorf("Product Image: error in generating image url err: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Error in getting image"})
 		return
 	}
 
@@ -351,7 +352,7 @@ func GetProductById(w http.ResponseWriter, r *http.Request) {
 		url, err := client.Storage.Bucket(product.BucketName).SignedURL(product.ImagePath, signedUrl)
 		if err != nil {
 			logrus.Errorf("GetAllProducts: error in generating image url err: %v", err)
-			utils.RespondError(w, http.StatusInternalServerError, err, "error in generating image url")
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Error in generating image url err"})
 			return
 		}
 		imgSlice = append(imgSlice, url)
@@ -366,7 +367,7 @@ func GetProductById(w http.ResponseWriter, r *http.Request) {
 	productDetails.Price = product.Price
 	productDetails.ImageUrl = imgSlice
 
-	utils.RespondJSON(w, http.StatusOK, productDetails)
+	ctx.JSON(http.StatusCreated, productDetails)
 }
 
 func CreatedAddress(w http.ResponseWriter, r *http.Request) {
@@ -390,8 +391,8 @@ func CreatedAddress(w http.ResponseWriter, r *http.Request) {
 	}{"Address created successfully!!"})
 }
 
-func GetUserByUserId(w http.ResponseWriter, r *http.Request) {
-	userId := chi.URLParam(r, "id")
+func GetUserByUserId(ctx *gin.Context) {
+	userId := ctx.Param("id")
 	var userData model.User
 	var userAddress []model.AddressModel
 	var userDetails model.UserWithAddress
@@ -408,7 +409,7 @@ func GetUserByUserId(w http.ResponseWriter, r *http.Request) {
 	userDetails.Name = userData.Name
 	userDetails.Email = userData.Email
 	userDetails.Address = userAddress
-	utils.RespondJSON(w, http.StatusOK, userDetails)
+	ctx.JSON(http.StatusCreated, userDetails)
 }
 
 func getUserId(r *http.Request) string {
@@ -420,25 +421,24 @@ func getUserId(r *http.Request) string {
 	return userId
 }
 
-func GetAllUser(w http.ResponseWriter, r *http.Request) {
+func GetAllUser(ctx *gin.Context) {
 	list, err := dbHelper.GetAllUser(model.RoleUser)
 	logrus.Println(list)
 	if err != nil {
+		logrus.Errorf("Get All user: error in getting all user: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Error in getting all user"})
 		return
 	}
-	err = utils.EncodeJSONBody(w, list)
-	if err != nil {
-		return
-	}
+	ctx.AsciiJSON(http.StatusOK, list)
 }
 
-func DeleteUserByUserId(w http.ResponseWriter, r *http.Request) {
-	userId := chi.URLParam(r, "id")
+func DeleteUserByUserId(ctx *gin.Context) {
+	userId := ctx.Param("id")
 	err := dbHelper.DeleteUser(database.Audiophile, userId)
 	if err != nil {
 		return
 	}
-	utils.RespondJSON(w, http.StatusOK, struct {
+	ctx.JSON(http.StatusOK, struct {
 		Message string
 	}{"User deleted successfully!"})
 }
@@ -653,38 +653,23 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 	}{Message: "Order placed successfully"})
 }
 
-func CreateOrderStatus(w http.ResponseWriter, r *http.Request) {
-	orderId := chi.URLParam(r, "orderId")
-	status := chi.URLParam(r, "orderStatus")
+func CreateOrderStatus(ctx *gin.Context) {
+	orderId := ctx.Param("orderId")
+	status := ctx.Param("orderStatus")
 	var orderStatus model.OrderStatus
 	if status == "shipping" {
 		orderStatus = model.OrderStatusShipping
 	} else if status == "delivered" {
 		orderStatus = model.OrderStatusDelivered
 	}
-	////var body model.PlacedOrderStatus
-	//var status string
-	//if err := utils.ParseBody(r.Body, &status); err != nil {
-	//	utils.RespondError(w, http.StatusBadRequest, err, "Failed to parse request body")
-	//	return
-	//}
-	//parseBody := model.PlacedOrderStatus{
-	//	Status: body.Status,
-	//}
-	//validate := validator.New()
-	//if err := validate.Struct(parseBody); err != nil {
-	//	utils.RespondError(w, http.StatusBadRequest, err, "input field is invalid")
-	//	return
-	//}
-
 	err := dbHelper.CreateOrderStatus(database.Audiophile, orderId, orderStatus)
 
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, err, "Failed to create order status")
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Failed to create order status"})
 		return
 	}
 
-	utils.RespondJSON(w, http.StatusCreated, struct {
+	ctx.JSON(http.StatusOK, struct {
 		Message string
 	}{"order status changed"})
 }
@@ -702,13 +687,13 @@ func GetUserAddress(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetAllImageByProductId(w http.ResponseWriter, r *http.Request) {
-	productID := chi.URLParam(r, "productID")
+func GetAllImageByProductId(ctx *gin.Context) {
+	productID := ctx.Param("productID")
 	imageDetails, err := dbHelper.GetImageByProductID(productID)
 
 	if err != nil {
 		logrus.Errorf("FetchImages: error in getting image err = %v", err)
-		utils.RespondError(w, http.StatusInternalServerError, err, "error in getting image")
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "error in getting image"})
 		return
 	}
 
@@ -723,11 +708,11 @@ func GetAllImageByProductId(w http.ResponseWriter, r *http.Request) {
 		url, err := client.Storage.Bucket(product.BucketName).SignedURL(product.ImagePath, signedUrl)
 		if err != nil {
 			logrus.Errorf("GetAllProducts: error in generating image url err: %v", err)
-			utils.RespondError(w, http.StatusInternalServerError, err, "error in generating image url")
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "error in generating image url"})
 			return
 		}
 
-		utils.RespondJSON(w, http.StatusOK, struct {
+		ctx.JSON(http.StatusOK, struct {
 			Id       string
 			ImageUrl string
 		}{
@@ -735,7 +720,6 @@ func GetAllImageByProductId(w http.ResponseWriter, r *http.Request) {
 			ImageUrl: url,
 		})
 	}
-
 }
 
 //func GetCartProductIds(w http.ResponseWriter, r *http.Request) {

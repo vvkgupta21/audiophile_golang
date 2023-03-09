@@ -20,32 +20,43 @@ type Server struct {
 }
 
 func SetupRoutes() *Server {
-	//routes := chi.NewRouter()
-
 	routes := gin.Default()
-
 	api := routes.Group("/api")
 	{
 		api.POST("/register", handler.CreateUser)
 		api.POST("/login", handler.Login)
 
+		admin := api.Group("/admin")
+		{
+			product := admin.Group("/product")
+			{
+				product.POST("/", handler.CreateProduct)
+				product.GET("/", handler.GetAllProduct)
+				product.GET("/:id", handler.GetProductById)
+			}
+
+			users := admin.Group("/user")
+			{
+				users.GET("/", handler.GetAllUser)
+				users.GET("/:id", handler.GetUserByUserId)
+				users.DELETE("/:id", handler.DeleteUserByUserId)
+			}
+
+			orderStatus := admin.Group("/status")
+			{
+				orderStatus.POST("/:orderId/:orderStatus", handler.CreateOrderStatus)
+			}
+
+			image := admin.Group("/image")
+			{
+				image.POST("/:productID", handler.UploadImages)
+				image.GET("/:productID", handler.GetAllImageByProductId)
+			}
+
+		}
+
 	}
 
-	//routes.Group("/api")
-	//
-	//api := routes.POST("/login")
-	//{
-	//
-	//}
-	//	routes.Route("/api", func(api chi.Router) {
-	//	api.Post("/register", handler.CreateUser)
-	//	api.Post("/login", handler.Login)
-	//	api.Route("/admin", func(admin chi.Router) {
-	//		admin.Use(middleware.AuthMiddleware)
-	//		admin.Use(middleware.AdminMiddleware)
-	//		admin.Group(AdminRoute)
-	//
-	//	})
 	//	api.Route("/user", func(user chi.Router) {
 	//		user.Use(middleware.AuthMiddleware)
 	//		user.Use(middleware.UserMiddleware)

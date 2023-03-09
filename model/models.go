@@ -102,9 +102,9 @@ type ProductDetails struct {
 	IsAvailable bool     `json:"isAvailable" db:"is_available"`
 	Quantity    int      `json:"quantity" db:"quantity"`
 	Category    Category `json:"category" db:"category"`
-	BucketName  string   `json:"bucket_name" db:"bucket_name"`
-	Path        string   `json:"image_path" db:"image_path"`
-	ImageUrl    []string `json:"imageUrl"`
+	//BucketName  string   `json:"bucket_name" db:"bucket_name"`
+	//Path        string   `json:"image_path" db:"image_path"`
+	ImageUrl []string `json:"imageUrl"`
 }
 
 type Images struct {

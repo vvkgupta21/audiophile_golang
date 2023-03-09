@@ -8,8 +8,8 @@ import (
 func UserRoute(r chi.Router) {
 	r.Group(func(user chi.Router) {
 		user.Route("/product", func(product chi.Router) {
-			product.Get("/", handler.GetAllProduct)
-			product.Get("/{id}", handler.GetProductById)
+			//product.Get("/", handler.GetAllProduct)
+			//product.Get("/{id}", handler.GetProductById)
 		})
 		user.Route("/address", func(address chi.Router) {
 			address.Post("/", handler.CreatedAddress)

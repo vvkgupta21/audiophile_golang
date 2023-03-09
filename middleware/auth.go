@@ -2,9 +2,9 @@ package middleware
 
 import (
 	"audio_phile/model"
-	"context"
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
+	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"log"
 	"net/http"
@@ -13,10 +13,9 @@ import (
 
 var sampleSecretKey = []byte("GoAudiophileKey")
 
-func AuthMiddleware(handler http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
-		userToken := r.Header.Get("Authorization")
+func AuthMiddleware() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		userToken := ctx.GetHeader("Authorization")
 		checkToken, err := jwt.Parse(userToken, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("There was an error in parsing token. ")
@@ -24,7 +23,7 @@ func AuthMiddleware(handler http.Handler) http.Handler {
 			return sampleSecretKey, nil
 		})
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
+			ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			log.Println(err)
 			return
 		}
@@ -35,10 +34,11 @@ func AuthMiddleware(handler http.Handler) http.Handler {
 		fmt.Println(userInfo)
 
 		if ok && checkToken.Valid {
-			ctx := context.WithValue(r.Context(), UserContext, userInfo)
-			handler.ServeHTTP(w, r.WithContext(ctx))
+			ctx.Set(string(UserContext), userInfo)
+			ctx.Next()
 		}
-	})
+		ctx.AbortWithStatus(http.StatusUnauthorized)
+	}
 }
 
 // GenerateJWT is used to generate the JWT token
