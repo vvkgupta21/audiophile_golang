@@ -52,7 +52,7 @@ func AdminMiddleware() gin.HandlerFunc {
 			ctx.Next()
 			return
 		}
-		ctx.JSON(http.StatusForbidden, gin.H{"message": "user does not have the necessary permissions"})
+		ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"message": "user does not have the necessary permissions"})
 	}
 }
 
@@ -68,6 +68,6 @@ func UserMiddleware() gin.HandlerFunc {
 			ctx.Next()
 			return
 		}
-		ctx.AbortWithStatus(http.StatusForbidden)
+		ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"message": "user does not have the necessary permissions"})
 	}
 }

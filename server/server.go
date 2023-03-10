@@ -2,6 +2,7 @@ package server
 
 import (
 	"audio_phile/database/handler"
+	"audio_phile/middleware"
 	"context"
 	"github.com/gin-gonic/gin"
 	"net/http"
@@ -27,6 +28,9 @@ func SetupRoutes() *Server {
 		api.POST("/login", handler.Login)
 
 		admin := api.Group("/admin")
+
+		admin.Use(middleware.AuthMiddleware())
+		admin.Use(middleware.AdminMiddleware())
 		{
 			product := admin.Group("/product")
 			{
@@ -34,25 +38,30 @@ func SetupRoutes() *Server {
 				product.GET("/", handler.GetAllProduct)
 				product.GET("/:id", handler.GetProductById)
 			}
-
 			users := admin.Group("/user")
 			{
 				users.GET("/", handler.GetAllUser)
 				users.GET("/:id", handler.GetUserByUserId)
 				users.DELETE("/:id", handler.DeleteUserByUserId)
 			}
-
 			orderStatus := admin.Group("/status")
 			{
 				orderStatus.POST("/:orderId/:orderStatus", handler.CreateOrderStatus)
 			}
-
 			image := admin.Group("/image")
 			{
 				image.POST("/:productID", handler.UploadImages)
 				image.GET("/:productID", handler.GetAllImageByProductId)
 			}
+		}
 
+		user := api.Group("/user")
+		{
+			product := user.Group("/product")
+			{
+				product.GET("/", handler.GetAllProduct)
+				product.GET("/:id", handler.GetProductById)
+			}
 		}
 
 	}
