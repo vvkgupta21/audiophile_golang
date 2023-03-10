@@ -8,9 +8,7 @@ import (
 	"audio_phile/utils"
 	cloud "cloud.google.com/go/storage"
 	"database/sql"
-	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 	"github.com/jmoiron/sqlx"
 	"github.com/sirupsen/logrus"
@@ -370,23 +368,27 @@ func GetProductById(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, productDetails)
 }
 
-func CreatedAddress(w http.ResponseWriter, r *http.Request) {
+func CreatedAddress(ctx *gin.Context) {
 	// parse the request data
 	var addresses []model.AddressRequest
-	if err := utils.ParseBody(r.Body, &addresses); err != nil {
-		utils.RespondError(w, http.StatusBadRequest, err, "Failed to parse request body")
+	if err := ctx.ShouldBindJSON(&addresses); err != nil {
+		logrus.Errorf("Create Address: error in creating address err: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Failed to parse request body"})
 		return
 	}
-	userId := getUserId(r)
+	userId := getUserId(ctx)
+
 	for _, address := range addresses {
 		// save the address to the database
 		err := dbHelper.CreateAddresses(database.Audiophile, userId, address.Address, address.AddressType, address.Lat, address.Long)
 		if err != nil {
-			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to create role")
+			logrus.Errorf("Create Role: error in creating role err: %v", err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Failed to create role"})
 			return
 		}
 	}
-	utils.RespondJSON(w, http.StatusCreated, struct {
+
+	ctx.JSON(http.StatusCreated, struct {
 		Message string
 	}{"Address created successfully!!"})
 }
@@ -412,12 +414,28 @@ func GetUserByUserId(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, userDetails)
 }
 
-func getUserId(r *http.Request) string {
-	user := r.Context().Value(middleware.UserContext).(map[string]interface{})
-	fmt.Println(user)
-	var userId string
-	userId = user["id"].(string)
-	fmt.Println(userId)
+//func getUserId(ctx *gin.Context) string {
+//	user := ctx.Request.Context().Value(middleware.UserContext).(map[string]interface{})
+//	fmt.Println(user)
+//	var userId string
+//	userId = user["id"].(string)
+//	fmt.Println(userId)
+//	return userId
+//}
+
+func getUserId(c *gin.Context) string {
+	user, exists := c.Get(string(middleware.UserContext))
+	if !exists {
+		return ""
+	}
+	userData, ok := user.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	userId, ok := userData["id"].(string)
+	if !ok {
+		return ""
+	}
 	return userId
 }
 
@@ -443,99 +461,107 @@ func DeleteUserByUserId(ctx *gin.Context) {
 	}{"User deleted successfully!"})
 }
 
-func CreateProductToCart(w http.ResponseWriter, r *http.Request) {
-	userId := getUserId(r)
-	productId := chi.URLParam(r, "id")
-	quantityStr := chi.URLParam(r, "quantity")
+func CreateProductToCart(ctx *gin.Context) {
+	userId := getUserId(ctx)
+	productId := ctx.Param("id")
+	quantityStr := ctx.Param("quantity")
 	quantity, err := strconv.Atoi(quantityStr)
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, err, "Failed to covert from string to int")
+		logrus.Errorf("Create Product to cart: error in creating product in cart: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Failed to covert from string to int"})
 		return
 	}
 
 	productDetail, err := dbHelper.GetProductById(productId)
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, err, "Product not found!")
+		logrus.Errorf("GetProductById: error in getting product by id err: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Product not found!"})
 		return
 	}
 
 	if quantity > productDetail.Quantity {
-		utils.RespondError(w, http.StatusBadRequest, nil, "Requested quantity not available")
+		logrus.Errorf("Product Quantity : error in product quantity err: %v", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "message": "Requested quantity not available"})
 		return
 	}
 
 	existingCartId, exist, existErr := dbHelper.IsCartExist(userId, model.CartStatusActive)
 
 	if existErr != nil {
-		utils.RespondError(w, http.StatusInternalServerError, existErr, "Failed to check cart existence")
+		logrus.Errorf("IsCartExist : error in cart exist err: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Failed to check cart existence"})
 		return
 	}
 
 	if exist {
 		err := dbHelper.CreateProductInCart(database.Audiophile, existingCartId, productId, quantity)
 		if err != nil {
-			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to add product")
+			logrus.Errorf("CreateProductInCart : error in creating product in cart err: %v", err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Failed to add product"})
 			return
 		}
 	} else {
 		txErr := database.Tx(func(tx *sqlx.Tx) error {
 			cartId, err := dbHelper.CreateCart(tx, userId, model.CartStatusActive)
 			if err != nil {
-				utils.RespondError(w, http.StatusInternalServerError, err, "Failed to create cart")
+				logrus.Errorf("CreateCart : error in creating cart err: %v", err)
+				ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Failed to create cart"})
 				return err
 			}
 
 			err = dbHelper.CreateProductInCart(tx, cartId, productId, quantity)
 			if err != nil {
-				utils.RespondError(w, http.StatusInternalServerError, err, "Failed to add product")
+				logrus.Errorf("Add Product : error in adding product to cart err: %v", err)
+				ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Failed to add product"})
 				return err
 			}
 			return nil
 		})
 		// error message correct karo
 		if txErr != nil {
-			utils.RespondError(w, http.StatusInternalServerError, txErr, "transaction error")
+			logrus.Errorf("Transaction : error in transaction err: %v", err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": txErr.Error(), "message": "Transaction error"})
 			return
 		}
 	}
 
-	utils.RespondJSON(w, http.StatusCreated, struct {
+	ctx.JSON(http.StatusCreated, struct {
 		Message string
 	}{"Product added to cart!"})
 }
 
-func GetCartWithProductById(w http.ResponseWriter, r *http.Request) {
-	userId := getUserId(r)
+func GetCartWithProductById(ctx *gin.Context) {
+	userId := getUserId(ctx)
 	list, err := dbHelper.GetCartWithProduct(database.Audiophile, userId)
 	logrus.Println(list)
 	if err != nil {
 		return
 	}
-	err = utils.EncodeJSONBody(w, list)
-	if err != nil {
-		return
-	}
+	ctx.JSON(http.StatusCreated, list)
 }
 
-func AddProductQuantityInCart(w http.ResponseWriter, r *http.Request) {
-	cartProductId := chi.URLParam(r, "cartId")
-	productId := chi.URLParam(r, "productId")
+func AddProductQuantityInCart(ctx *gin.Context) {
+	cartProductId := ctx.Param("cartId")
+	productId := ctx.Param("productId")
 
 	cartDetail, err := dbHelper.GetCartProductQuantity(cartProductId, productId)
 
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, err, "Cart detail not found!")
+		logrus.Errorf("Transaction : error in transaction err: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Cart detail not found!"})
 		return
 	}
 
 	productDetail, err := dbHelper.GetProductById(productId)
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, err, "Product not found!")
+		logrus.Errorf("Product Detial : error in gettng product detail err: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Product not found!"})
 		return
 	}
 
 	if cartDetail.Quantity >= productDetail.Quantity {
-		utils.RespondError(w, http.StatusBadRequest, nil, "Requested quantity not available")
+		logrus.Errorf("Product Quantity : error in quantity err: %v", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "Requested quantity not available"})
 		return
 	}
 
@@ -544,24 +570,26 @@ func AddProductQuantityInCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.RespondJSON(w, http.StatusOK, struct {
+	ctx.JSON(http.StatusOK, struct {
 		Message string
 	}{"Quantity updated successfully"})
 }
 
-func RemoveProductQuantityInCart(w http.ResponseWriter, r *http.Request) {
-	cartProductId := chi.URLParam(r, "cartId")
-	productId := chi.URLParam(r, "productId")
+func RemoveProductQuantityInCart(ctx *gin.Context) {
+	cartProductId := ctx.Param("cartId")
+	productId := ctx.Param("productId")
 
 	cartDetail, err := dbHelper.GetCartProductQuantity(cartProductId, productId)
 
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, err, "Cart detail not found!")
+		logrus.Errorf("CartDetails : error in cart details err: %v", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "message": "Cart detail not found!"})
 		return
 	}
 
-	if cartDetail.Quantity <= 0 {
-		utils.RespondError(w, http.StatusBadRequest, nil, "Requested quantity not available")
+	if cartDetail.Quantity == 0 {
+		logrus.Errorf("Product Quantity : error in product quantity err: %v", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "Quantity is already 0"})
 		return
 	}
 
@@ -570,39 +598,39 @@ func RemoveProductQuantityInCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.RespondJSON(w, http.StatusOK, struct {
+	ctx.JSON(http.StatusOK, struct {
 		Message string
 	}{"Quantity updated successfully"})
 
 }
 
-func DeleteProductFromCart(w http.ResponseWriter, r *http.Request) {
-	cartProductId := chi.URLParam(r, "cartId")
-	productId := chi.URLParam(r, "productId")
+func DeleteProductFromCart(ctx *gin.Context) {
+	cartProductId := ctx.Param("cartId")
+	productId := ctx.Param("productId")
 
 	err := dbHelper.UpdateProductFromCart(database.Audiophile, cartProductId, productId)
 	if err != nil {
 		return
 	}
 
-	utils.RespondJSON(w, http.StatusOK, struct {
+	ctx.JSON(http.StatusOK, struct {
 		Message string
 	}{"Product deleted successfully"})
 }
 
-func CreateOrder(w http.ResponseWriter, r *http.Request) {
-	cartId := chi.URLParam(r, "cartId")
-	addressId := chi.URLParam(r, "addressId")
+func CreateOrder(ctx *gin.Context) {
+	cartId := ctx.Param("cartId")
+	addressId := ctx.Param("addressId")
 
 	active, activeErr := dbHelper.IsCartIsActive(cartId)
 
 	if active == model.CartStatusInActive {
-		utils.RespondError(w, http.StatusBadRequest, activeErr, "Cart is not active")
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": activeErr.Error(), "message": "Cart is not active"})
 		return
 	}
 
 	if activeErr != nil {
-		utils.RespondError(w, http.StatusInternalServerError, activeErr, "Failed to check cart status")
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": activeErr.Error(), "message": "Failed to check cart status"})
 		return
 	}
 
@@ -614,21 +642,21 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 	txErr := database.Tx(func(tx *sqlx.Tx) error {
 		err := dbHelper.CreateOrder(tx, cartId, model.OrderStatusOrdered, addressId)
 		if err != nil {
-			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to create order")
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Failed to create order"})
 			return err
 		}
 
 		for _, v := range productDetail {
 			err = dbHelper.UpdateProductQuantity(tx, v.ProductId, v.Quantity)
 			if err != nil {
-				utils.RespondError(w, http.StatusInternalServerError, err, "Failed to update the quantity")
+				ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Failed to update the quantity"})
 				return err
 			}
 
 			err := dbHelper.UpdateProductFromCart(tx, cartId, v.ProductId)
 
 			if err != nil {
-				utils.RespondError(w, http.StatusInternalServerError, err, "Failed to delete product from cart")
+				ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Failed to delete product from cart"})
 				return err
 			}
 		}
@@ -636,7 +664,7 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 		err = dbHelper.UpdateCartToInactive(tx, cartId, model.CartStatusInActive)
 
 		if err != nil {
-			utils.RespondError(w, http.StatusInternalServerError, err, "Failed to update status of cart")
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "message": "Failed to update status of cart"})
 			return err
 		}
 
@@ -644,11 +672,11 @@ func CreateOrder(w http.ResponseWriter, r *http.Request) {
 	})
 	// error message correct karo
 	if txErr != nil {
-		utils.RespondError(w, http.StatusInternalServerError, txErr, "transaction error")
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": txErr.Error(), "message": "transaction error"})
 		return
 	}
 
-	utils.RespondJSON(w, http.StatusOK, struct {
+	ctx.JSON(http.StatusOK, struct {
 		Message string
 	}{Message: "Order placed successfully"})
 }
@@ -674,17 +702,14 @@ func CreateOrderStatus(ctx *gin.Context) {
 	}{"order status changed"})
 }
 
-func GetUserAddress(w http.ResponseWriter, r *http.Request) {
-	userId := getUserId(r)
+func GetUserAddress(ctx *gin.Context) {
+	userId := getUserId(ctx)
 	userAddress, err := dbHelper.GetAddress(database.Audiophile, userId)
 	logrus.Println(userAddress)
 	if err != nil {
 		return
 	}
-	err = utils.EncodeJSONBody(w, userAddress)
-	if err != nil {
-		return
-	}
+	ctx.JSON(http.StatusCreated, userAddress)
 }
 
 func GetAllImageByProductId(ctx *gin.Context) {

@@ -26,9 +26,7 @@ func SetupRoutes() *Server {
 	{
 		api.POST("/register", handler.CreateUser)
 		api.POST("/login", handler.Login)
-
 		admin := api.Group("/admin")
-
 		admin.Use(middleware.AuthMiddleware())
 		admin.Use(middleware.AdminMiddleware())
 		{
@@ -56,22 +54,43 @@ func SetupRoutes() *Server {
 		}
 
 		user := api.Group("/user")
+		user.Use(middleware.AuthMiddleware())
+		user.Use(middleware.UserMiddleware())
 		{
 			product := user.Group("/product")
 			{
 				product.GET("/", handler.GetAllProduct)
 				product.GET("/:id", handler.GetProductById)
 			}
+			address := user.Group("/address")
+			{
+				address.POST("/", handler.CreatedAddress)
+				address.GET("/", handler.GetUserAddress)
+			}
+			cart := user.Group("/cart")
+			{
+				cart.POST("/:id/:quantity", handler.CreateProductToCart)
+				cart.GET("/", handler.GetCartWithProductById)
+
+				addQuantity := cart.Group("/add")
+				{
+					addQuantity.POST("/:cartId/:productId", handler.AddProductQuantityInCart)
+				}
+				removeQuantity := cart.Group("/remove")
+				{
+					removeQuantity.POST("/:cartId/:productId", handler.RemoveProductQuantityInCart)
+				}
+				deleteProduct := cart.Group("/delete")
+				{
+					deleteProduct.DELETE("/:cartId/:productId", handler.DeleteProductFromCart)
+				}
+				order := cart.Group("/order")
+				{
+					order.POST("/:cartId/:addressId", handler.CreateOrder)
+				}
+			}
 		}
-
 	}
-
-	//	api.Route("/user", func(user chi.Router) {
-	//		user.Use(middleware.AuthMiddleware)
-	//		user.Use(middleware.UserMiddleware)
-	//		user.Group(UserRoute)
-	//	})
-	//})
 	return &Server{
 		Engine: routes,
 	}

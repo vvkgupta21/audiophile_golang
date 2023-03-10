@@ -14,15 +14,6 @@ const (
 	UserContext ContextKeys = "userInfo"
 )
 
-//func UserContextData(ctx *gin.Context) (string, error) {
-//	user := ctx.Value(UserContext).(map[string]interface{})
-//	fmt.Println(user)
-//	var role string
-//	role = user["role"].(string)
-//	fmt.Println(role)
-//	return role, nil
-//}
-
 func UserContextData(c *gin.Context) (string, error) {
 	user, exists := c.Get(string(UserContext))
 	if !exists {
