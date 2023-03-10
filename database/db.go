@@ -1,6 +1,7 @@
 package database
 
 import (
+	"audio_phile/utils"
 	"fmt"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
@@ -21,8 +22,16 @@ const (
 	SSLModeDisable SSLMode = "disable"
 )
 
-func ConnectAndMigrate(host, port, databaseName, user, password string, mode SSLMode) error {
-	conStr := fmt.Sprintf("host=%s port=%s dbname=%s user=%s password=%s sslmode=%s", host, port, databaseName, user, password, mode)
+func ConnectAndMigrate() error {
+
+	err := utils.LoadEnv(".env")
+	host := utils.GetEnvValue("DB_Host")
+	user := utils.GetEnvValue("DB_User")
+	password := utils.GetEnvValue("DB_Password")
+	databaseName := utils.GetEnvValue("DB_Name")
+	port := utils.GetEnvValue("DB_Port")
+
+	conStr := fmt.Sprintf("host=%s port=%s dbname=%s user=%s password=%s sslmode=%s", host, port, databaseName, user, password, SSLModeDisable)
 	DB, err := sqlx.Open("postgres", conStr)
 	if err != nil {
 		panic(err)
@@ -74,4 +83,12 @@ func Tx(fn func(tx *sqlx.Tx) error) error {
 	}()
 	err = fn(tx)
 	return err
+}
+
+func CloseDb() {
+	DbInstance := Audiophile.DB
+	err := DbInstance.Close()
+	if err != nil {
+		return
+	}
 }
